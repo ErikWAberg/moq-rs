@@ -175,69 +175,49 @@ fn spawn_ffmpeg() -> Result<Child, Error> {
 	let CRF = "23";
 	let GOP = "96";
 
+	let args = [
+		"-r", "30",
+		"-analyzeduration", "1000",
+		"-i", "pipe:0",
+		"-map", "0:a",
+		"-map", "1:v",
+		"-c:v", "libx264",
+		"-s:v", &format!("{}x{}", width, height),
+		"-preset", PRESET,
+		"-crf", CRF,
+		"-sc_threshold", "0",
+		"-g", GOP,
+		"-b:v", "6.5M",
+		"-maxrate", "6.5M",
+		"-bufsize", "6.5M",
+		"-profile:v", "main",
+		"-level", "4.1",
+		"-color_primaries", "1",
+		"-color_trc", "1",
+		"-colorspace", "1",
+		"-muxdelay", "0",
+		"-var_stream_map", "v:0,name:v0",
+		"-hls_segment_type", "mpegts",
+		"-hls_time", "3.2",
+		"-hls_flags", "delete_segments",
+		"-hls_segment_filename", "%v-%d.ts",
+		"-master_pl_name", "master0.m3u8",
+		"variant-0-%v.m3u8"
+	];
+
+	let command_str = format!("ffmpeg {}", args.join(" "));
+	log::info!("Executing: {}", command_str);
+
 	let ffmpeg = Command::new("ffmpeg")
 		.current_dir("dump")
-		.arg("-r")
-		.arg("30")
-		.arg("-analyzeduration")
-		.arg("1000")
-		.arg("-i")
-		.arg("pipe:0")
-		.arg("-map")
-		.arg("0:a")
-		.arg("-map")
-		.arg("1:v")
-		.arg("-c:v")
-		.arg("libx264")
-		.arg("-s:v")
-		.arg(format!("{}x{}", width, height))
-		.arg("-preset")
-		.arg(PRESET)
-		.arg("-crf")
-		.arg(CRF)
-		.arg("-sc_threshold")
-		.arg("0")
-		.arg("-g")
-		.arg(GOP)
-		.arg("-b:v")
-		.arg("6.5M")
-		.arg("-maxrate")
-		.arg("6.5M")
-		.arg("-bufsize")
-		.arg("6.5M")
-		.arg("-profile:v")
-		.arg("main")
-		.arg("-level")
-		.arg("4.1")
-		.arg("-color_primaries")
-		.arg("1")
-		.arg("-color_trc")
-		.arg("1")
-		.arg("-colorspace")
-		.arg("1")
-		.arg("-muxdelay")
-		.arg("0")
-		.arg("-muxdelay")
-		.arg("0")
-		.arg("-var_stream_map")
-		.arg("v:0,name:v0")
-		.arg("-hls_segment_type")
-		.arg("mpegts")
-		.arg("-hls_time")
-		.arg("3.2")
-		.arg("-hls_flags")
-		.arg("delete_segments")
-		.arg("-hls_segment_filename")
-		.arg("%v-%d.ts")
-		.arg("-master_pl_name")
-		.arg("master0.m3u8")
-		.arg("variant-0-%v.m3u8")
+		.args(&args)
 		.stdin(Stdio::piped())
-		.stdout(stdout())
-		.stderr(stderr())
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
 		.spawn()
-		.context("failed to spawn ffmpeg process");
-	ffmpeg
+		.context("failed to spawn ffmpeg process")?;
+
+	Ok(ffmpeg)
 }
 
 pub struct NoCertificateVerification {}
