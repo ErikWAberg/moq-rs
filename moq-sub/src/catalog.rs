@@ -14,10 +14,8 @@ pub(crate) struct Track {
     pub codec: String,
     pub container: String,
     pub data_track: String,
-    pub height: i64,
     pub init_track: String,
     pub kind: String,
-    pub width: i64,
 }
 
 #[derive(Deserialize, Debug)]
