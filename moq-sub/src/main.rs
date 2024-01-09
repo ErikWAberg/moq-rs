@@ -6,6 +6,7 @@ use clap::Parser;
 mod cli;
 mod dump;
 mod catalog;
+mod init;
 
 use cli::*;
 
