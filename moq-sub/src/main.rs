@@ -2,6 +2,7 @@ use std::{fs, io, sync::Arc, time};
 
 use anyhow::Context;
 use clap::Parser;
+use serde_json::from_slice;
 
 mod cli;
 mod dump;
@@ -93,19 +94,7 @@ async fn main() -> anyhow::Result<()> {
 	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
 		log::info!("Parsed catalog: {:?}", catalog);
 		for track in catalog.tracks {
-			let track_subscriber = match subscriber.get_track(&track.data_track) {
-				Ok(subscriber) => subscriber,
-				Err(err) => {
-					log::error!("Failed to get track {}: {:?}", track.data_track, err);
-					continue;
-				}
-			};
-			let dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.data_track), track_subscriber);
-			tokio::spawn(async move {
-				if let Err(err) = dumper.run().await {
-					log::warn!("Failed to run dumper for track {}: {:?}", track.data_track, err);
-				}
-			});
+
 
 			// Dump the init_track
 			let init_track_subscriber = match subscriber.get_track(&track.init_track) {
@@ -115,12 +104,36 @@ async fn main() -> anyhow::Result<()> {
 					continue;
 				}
 			};
-			let init_dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.init_track), init_track_subscriber);
+			let mut init_dumper = init::InitTrackSubscriber::new(init_track_subscriber);
+			let subscriber = subscriber.clone();
+			let stream_name = stream_name.clone();
+			init_dumper.register_callback(Arc::new(move |init_track: Vec<u8>| {
+				log::info!("Got init track");
+
+				let track_subscriber = match subscriber.get_track(&track.data_track) {
+					Ok(subscriber) => Some(subscriber),
+					Err(err) => {
+						log::error!("Failed to get track {}: {:?}", track.data_track, err);
+						None
+					}
+				};
+				if let Some(track_subscriber) = track_subscriber {
+					let track_data_track = track.data_track.clone();
+					let dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.data_track), track_subscriber, init_track);
+					tokio::spawn(async move {
+						if let Err(err) = dumper.run().await {
+							log::warn!("Failed to run dumper for track {}: {:?}", track_data_track, err);
+						}
+					});
+				}
+
+			}));
 			tokio::spawn(async move {
 				if let Err(err) = init_dumper.run().await {
 					log::warn!("Failed to run dumper for init track {}: {:?}", track.init_track, err);
 				}
 			});
+
 		}
 	}));
 

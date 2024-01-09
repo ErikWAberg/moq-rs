@@ -7,12 +7,13 @@ use tokio::process::{Command, ChildStdin};
 
 pub struct Subscriber {
     track: track::Subscriber,
-    name: String
+    name: String,
+    init_track: Vec<u8>,
 }
 
 impl Subscriber {
-    pub fn new(name: String, track: track::Subscriber) -> Self {
-        Self { name, track }
+    pub fn new(name: String, track: track::Subscriber, init_track: Vec<u8>) -> Self {
+        Self { name, track, init_track }
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
@@ -109,7 +110,7 @@ impl Subscriber {
             log::debug!("next fragment: {:?}", fragment);
             let value = Self::recv_fragment(fragment, base.clone()).await?;
 
-            ffmpeg_stdin.write_all(&value).await.context("failed to write to ffmpeg stdin")?;
+            ffmpeg_stdin.write_all(&value).await.context("failed to write to ffmpeg stdin the second time")?;
 
 
         }
