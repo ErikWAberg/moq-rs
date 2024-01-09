@@ -81,6 +81,7 @@ async fn main() -> anyhow::Result<()> {
 		.await
 		.context("failed to create MoQ Transport session")?;
 
+	let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
 
 	let catalog_track_subscriber = subscriber
 		.get_track(".catalog")
@@ -89,8 +90,6 @@ async fn main() -> anyhow::Result<()> {
 	let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
 
 	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
-
-
 		log::info!("Parsed catalog: {:?}", catalog);
 		for track in catalog.tracks {
 			let track_subscriber = match subscriber.get_track(&track.data_track) {
@@ -100,7 +99,7 @@ async fn main() -> anyhow::Result<()> {
 					continue;
 				}
 			};
-			let dumper = dump::Subscriber::new(track.data_track.clone(), track_subscriber);
+			let dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.data_track), track_subscriber);
 			tokio::spawn(async move {
 				if let Err(err) = dumper.run().await {
 					log::warn!("Failed to run dumper for track {}: {:?}", track.data_track, err);
@@ -115,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
 					continue;
 				}
 			};
-			let init_dumper = dump::Subscriber::new(track.init_track.clone(), init_track_subscriber);
+			let init_dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.init_track), init_track_subscriber);
 			tokio::spawn(async move {
 				if let Err(err) = init_dumper.run().await {
 					log::warn!("Failed to run dumper for init track {}: {:?}", track.init_track, err);
