@@ -5,10 +5,12 @@ use clap::Parser;
 
 mod cli;
 mod dump;
+mod catalog;
 
 use cli::*;
 
 use moq_transport::cache::broadcast;
+use catalog::Catalog;
 
 // TODO: clap complete
 
@@ -80,27 +82,54 @@ async fn main() -> anyhow::Result<()> {
 		.context("failed to create MoQ Transport session")?;
 
 
-	let catalog_subscriber = subscriber
+	let catalog_track_subscriber = subscriber
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
-	let init_subscriber = subscriber
-		.get_track("0.mp4")
-		.context("failed to get init track")?;
-	let data_subscriber = subscriber
-		.get_track("1.m4s")
-		.context("failed to get data track")?;
+	let mut catalog_subscriber = catalog::CatalogSubscriber::new("catalog".to_string(), catalog_track_subscriber);
 
-	let catalog_dumper = dump::Subscriber::new("catalog".to_string(), catalog_subscriber);
-	let init_dumper = dump::Subscriber::new("0.mp4".to_string(), init_subscriber);
-	let data_dumper = dump::Subscriber::new("1.m4s".to_string(), data_subscriber);
+	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
 
-	// TODO run a task that returns a 404 for all unknown subscriptions.
+
+		log::info!("Parsed catalog: {:?}", catalog);
+		for track in catalog.tracks {
+			let track_subscriber = match subscriber.get_track(&track.data_track) {
+				Ok(subscriber) => subscriber,
+				Err(err) => {
+					log::error!("Failed to get track {}: {:?}", track.data_track, err);
+					continue;
+				}
+			};
+			let dumper = dump::Subscriber::new(track.data_track.clone(), track_subscriber);
+			tokio::spawn(async move {
+				if let Err(err) = dumper.run().await {
+					log::warn!("Failed to run dumper for track {}: {:?}", track.data_track, err);
+				}
+			});
+
+			// Dump the init_track
+			let init_track_subscriber = match subscriber.get_track(&track.init_track) {
+				Ok(subscriber) => subscriber,
+				Err(err) => {
+					log::error!("Failed to get init track {}: {:?}", track.init_track, err);
+					continue;
+				}
+			};
+			let init_dumper = dump::Subscriber::new(track.init_track.clone(), init_track_subscriber);
+			tokio::spawn(async move {
+				if let Err(err) = init_dumper.run().await {
+					log::warn!("Failed to run dumper for init track {}: {:?}", track.init_track, err);
+				}
+			});
+		}
+	}));
+
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = catalog_dumper.run() => res.context("catalog dumper error")?,
-		res = init_dumper.run() => res.context("init dumper error")?,
-		res = data_dumper.run() => res.context("data dumper error")?,
+		res = catalog_subscriber.run() => res.context("catalog dumper error")?,
+	}
+	tokio::select! {
+		_ =  tokio::task::yield_now() => {},
 	}
 
 	Ok(())
