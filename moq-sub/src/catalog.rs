@@ -134,11 +134,13 @@ impl<'de> Visitor<'de> for TrackVisitor {
         let mut kind: Option<String> = None;
         let mut value_map = serde_json::Map::new();
         while let Some(key) = map.next_key()? {
+            let val: serde_json::Value = map.next_value()?;
             if key == "kind" {
-                kind = map.next_value()?;
-            } else {
-                value_map.insert(key, map.next_value()?);
+                if let Some(kind_val) = val.as_str() {
+                    kind = Some(kind_val.to_owned());
+                }
             }
+            value_map.insert(key, val);
         }
         match kind {
             Some(kind) if kind == "audio" => {
