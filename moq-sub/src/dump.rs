@@ -1,5 +1,8 @@
 use std::io::{stderr, stdout};
 use std::process::Stdio;
+use std::sync::{Arc};
+
+use tokio::sync::{Mutex};
 use anyhow::Context;
 use moq_transport::cache::{fragment, segment, track};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
@@ -86,13 +89,21 @@ impl Subscriber {
 
         log::info!("running ffmpeg: {:?}", ffmpeg);
 
+        let mut ffmpeg_stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
+
+        ffmpeg_stdin.write_all(&self.init_track).await.context("failed to write init track to ffmpeg stdin")?;
+
+        let ffmpeg_stdin = Arc::new(Mutex::new(ffmpeg_stdin));
+
+
         let name = self.name.clone();
         while let Some(segment) = self.track.segment().await.context("failed to get segment")? {
             log::debug!("got segment: {:?}", segment);
             let segment_name = name.clone();
-            let ffmpeg_stdin = ffmpeg.stdin.take().context("failed to open ffmpeg stdin")?;
+            let ffmpeg_stdin = Arc::clone(&ffmpeg_stdin);
 
             tokio::spawn(async move {
+
                 if let Err(err) = Self::recv_segment(ffmpeg_stdin, segment_name, segment).await {
                     log::warn!("failed to receive segment: {:?}", err);
                 }
@@ -102,7 +113,11 @@ impl Subscriber {
         Ok(())
     }
 
-    async fn recv_segment(mut ffmpeg_stdin: ChildStdin, name: String, mut segment: segment::Subscriber) -> anyhow::Result<()> {
+    async fn recv_segment(
+        ffmpeg_stdin: Arc<Mutex<ChildStdin>>,
+        name: String,
+        mut segment: segment::Subscriber
+    ) -> anyhow::Result<()> {
         let filename = format!("{}.{}", name, segment.sequence);
 
         let base = Vec::new();
@@ -110,9 +125,9 @@ impl Subscriber {
             log::debug!("next fragment: {:?}", fragment);
             let value = Self::recv_fragment(fragment, base.clone()).await?;
 
+            // Write the fragment data to the ffmpeg stdin
+            let mut ffmpeg_stdin = ffmpeg_stdin.lock().await;
             ffmpeg_stdin.write_all(&value).await.context("failed to write to ffmpeg stdin the second time")?;
-
-
         }
 
         Ok(())
