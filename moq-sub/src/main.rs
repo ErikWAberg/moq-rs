@@ -1,10 +1,8 @@
 use std::{fs, io, sync::Arc, time};
-use std::io::{stderr, stdout};
 use std::process::Stdio;
 
 use anyhow::{Context, Error};
 use clap::Parser;
-use serde_json::from_slice;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
@@ -17,7 +15,6 @@ use cli::*;
 
 use moq_transport::cache::broadcast;
 use catalog::Catalog;
-use crate::catalog::Track;
 
 // TODO: clap complete
 

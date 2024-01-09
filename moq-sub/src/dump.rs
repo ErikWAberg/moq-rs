@@ -1,12 +1,10 @@
-use std::io::{stderr, stdout};
-use std::process::Stdio;
 use std::sync::{Arc};
 
 use tokio::sync::{Mutex};
 use anyhow::Context;
 use moq_transport::cache::{fragment, segment, track};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-use tokio::process::{Command, ChildStdin};
+use tokio::io::AsyncWriteExt;
+use tokio::process::ChildStdin;
 
 pub struct Subscriber {
     track: track::Subscriber,
@@ -45,8 +43,6 @@ impl Subscriber {
         name: String,
         mut segment: segment::Subscriber
     ) -> anyhow::Result<()> {
-        let filename = format!("{}.{}", name, segment.sequence);
-
         let base = Vec::new();
         while let Some(fragment) = segment.fragment().await? {
             log::debug!("next fragment: {:?}", fragment);

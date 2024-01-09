@@ -1,7 +1,5 @@
 use anyhow::Context;
 use moq_transport::cache::{fragment, segment, track};
-use serde_json::from_slice;
-use serde::Deserialize;
 use std::sync::Arc;
 
 pub struct InitTrackSubscriber {
