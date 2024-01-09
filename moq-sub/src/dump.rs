@@ -12,96 +12,23 @@ pub struct Subscriber {
     track: track::Subscriber,
     name: String,
     init_track: Vec<u8>,
+    ffmpeg_stdin: Arc<Mutex<ChildStdin>>,
 }
 
 impl Subscriber {
-    pub fn new(name: String, track: track::Subscriber, init_track: Vec<u8>) -> Self {
-        Self { name, track, init_track }
+    pub fn new(name: String, track: track::Subscriber, init_track: Vec<u8>, ffmpeg_stdin: Arc<Mutex<ChildStdin>>) -> Self {
+        Self { name, track, init_track, ffmpeg_stdin }
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let width = 1920;
-        let height = 1080;
-        let PRESET = "ultrafast";
-        let CRF = "23";
-        let GOP = "96";
 
-        let mut ffmpeg = Command::new("ffmpeg")
-            .current_dir("dump")
-            .arg("-r")
-            .arg("30")
-            .arg("-analyzeduration")
-            .arg("1000")
-            .arg("-i")
-            .arg("pipe:0")
-            .arg("-map")
-            .arg("v:0")
-            .arg("-c:v")
-            .arg("libx264")
-            .arg("-s:v")
-            .arg(format!("{}x{}", width, height))
-            .arg("-preset")
-            .arg(PRESET)
-            .arg("-crf")
-            .arg(CRF)
-            .arg("-sc_threshold")
-            .arg("0")
-            .arg("-g")
-            .arg(GOP)
-            .arg("-b:v")
-            .arg("6.5M")
-            .arg("-maxrate")
-            .arg("6.5M")
-            .arg("-bufsize")
-            .arg("6.5M")
-            .arg("-profile:v")
-            .arg("main")
-            .arg("-level")
-            .arg("4.1")
-            .arg("-color_primaries")
-            .arg("1")
-            .arg("-color_trc")
-            .arg("1")
-            .arg("-colorspace")
-            .arg("1")
-            .arg("-muxdelay")
-            .arg("0")
-            .arg("-muxdelay")
-            .arg("0")
-            .arg("-var_stream_map")
-            .arg("v:0,name:v0")
-            .arg("-hls_segment_type")
-            .arg("mpegts")
-            .arg("-hls_time")
-            .arg("3.2")
-            .arg("-hls_flags")
-            .arg("delete_segments")
-            .arg("-hls_segment_filename")
-            .arg("%v-%d.ts")
-            .arg("-master_pl_name")
-            .arg("master0.m3u8")
-            .arg("variant-0-%v.m3u8")
-            .stdin(Stdio::piped())
-            .stdout(stdout())
-            .stderr(stderr())
-            .spawn()
-            .context("failed to spawn ffmpeg process")?;
-
-        log::info!("running ffmpeg: {:?}", ffmpeg);
-
-        let mut ffmpeg_stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
-
-        ffmpeg_stdin.write_all(&self.init_track).await.context("failed to write init track to ffmpeg stdin")?;
-
-        let ffmpeg_stdin = Arc::new(Mutex::new(ffmpeg_stdin));
-
+        self.ffmpeg_stdin.lock().await.write_all(&self.init_track).await.context("failed to write to ffmpeg stdin")?;
 
         let name = self.name.clone();
         while let Some(segment) = self.track.segment().await.context("failed to get segment")? {
             log::debug!("got segment: {:?}", segment);
             let segment_name = name.clone();
-            let ffmpeg_stdin = Arc::clone(&ffmpeg_stdin);
-
+            let ffmpeg_stdin = Arc::clone(&self.ffmpeg_stdin);
             tokio::spawn(async move {
 
                 if let Err(err) = Self::recv_segment(ffmpeg_stdin, segment_name, segment).await {
@@ -127,7 +54,10 @@ impl Subscriber {
 
             // Write the fragment data to the ffmpeg stdin
             let mut ffmpeg_stdin = ffmpeg_stdin.lock().await;
-            ffmpeg_stdin.write_all(&value).await.context("failed to write to ffmpeg stdin the second time")?;
+            if let Err(err) = ffmpeg_stdin.write_all(&value).await {
+                log::error!("Failed to write to ffmpeg stdin: {:?}", err);
+                std::process::exit(1);
+            }
         }
 
         Ok(())

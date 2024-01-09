@@ -1,8 +1,12 @@
 use std::{fs, io, sync::Arc, time};
+use std::io::{stderr, stdout};
+use std::process::Stdio;
 
-use anyhow::Context;
+use anyhow::{Context, Error};
 use clap::Parser;
 use serde_json::from_slice;
+use tokio::process::{Child, Command};
+use tokio::sync::Mutex;
 
 mod cli;
 mod dump;
@@ -13,6 +17,7 @@ use cli::*;
 
 use moq_transport::cache::broadcast;
 use catalog::Catalog;
+use crate::catalog::Track;
 
 // TODO: clap complete
 
@@ -93,33 +98,48 @@ async fn main() -> anyhow::Result<()> {
 
 	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
 		log::info!("Parsed catalog: {:?}", catalog);
+
+		let mut ffmpeg = spawn_ffmpeg().expect("Failed to spawn ffmpeg");
+
+		log::info!("running ffmpeg: {:?}", ffmpeg);
+
+
+		let ffmpeg_stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
+
+		let ffmpeg_stdin = Arc::new(Mutex::new(ffmpeg_stdin));
+
+
 		for track in catalog.tracks {
 
-
 			// Dump the init_track
-			let init_track_subscriber = match subscriber.get_track(&track.init_track) {
+			let init_track = track.init_track().clone();
+			let init_track_subscriber = match subscriber.get_track(init_track.as_str()) {
 				Ok(subscriber) => subscriber,
 				Err(err) => {
-					log::error!("Failed to get init track {}: {:?}", track.init_track, err);
+					log::error!("Failed to get init track {}: {:?}", init_track, err);
 					continue;
 				}
 			};
 			let mut init_dumper = init::InitTrackSubscriber::new(init_track_subscriber);
 			let subscriber = subscriber.clone();
 			let stream_name = stream_name.clone();
+			let ffmpeg_stdin = ffmpeg_stdin.clone();
+			let data_track = track.data_track().clone();
+
 			init_dumper.register_callback(Arc::new(move |init_track: Vec<u8>| {
 				log::info!("Got init track");
 
-				let track_subscriber = match subscriber.get_track(&track.data_track) {
+				let track_subscriber = match subscriber.get_track(data_track.as_str()) {
 					Ok(subscriber) => Some(subscriber),
 					Err(err) => {
-						log::error!("Failed to get track {}: {:?}", track.data_track, err);
+						log::error!("Failed to get track {}: {:?}", data_track, err);
 						None
 					}
 				};
 				if let Some(track_subscriber) = track_subscriber {
-					let track_data_track = track.data_track.clone();
-					let dumper = dump::Subscriber::new(format!("{}/{}", stream_name, track.data_track), track_subscriber, init_track);
+					let track_data_track = data_track.clone();
+					let ffmpeg_stdin = ffmpeg_stdin.clone();
+					let dumper = dump::Subscriber::new(format!("{}/{}", stream_name,track_data_track), track_subscriber, init_track, ffmpeg_stdin);
 					tokio::spawn(async move {
 						if let Err(err) = dumper.run().await {
 							log::warn!("Failed to run dumper for track {}: {:?}", track_data_track, err);
@@ -130,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
 			}));
 			tokio::spawn(async move {
 				if let Err(err) = init_dumper.run().await {
-					log::warn!("Failed to run dumper for init track {}: {:?}", track.init_track, err);
+					log::warn!("Failed to run dumper for init track {}: {:?}", init_track, err);
 				}
 			});
 
@@ -146,6 +166,78 @@ async fn main() -> anyhow::Result<()> {
 	}
 
 	Ok(())
+}
+
+fn spawn_ffmpeg() -> Result<Child, Error> {
+	let width = 1920;
+	let height = 1080;
+	let PRESET = "ultrafast";
+	let CRF = "23";
+	let GOP = "96";
+
+	let ffmpeg = Command::new("ffmpeg")
+		.current_dir("dump")
+		.arg("-r")
+		.arg("30")
+		.arg("-analyzeduration")
+		.arg("1000")
+		.arg("-i")
+		.arg("pipe:0")
+		.arg("-map")
+		.arg("0:a")
+		.arg("-map")
+		.arg("1:v")
+		.arg("-c:v")
+		.arg("libx264")
+		.arg("-s:v")
+		.arg(format!("{}x{}", width, height))
+		.arg("-preset")
+		.arg(PRESET)
+		.arg("-crf")
+		.arg(CRF)
+		.arg("-sc_threshold")
+		.arg("0")
+		.arg("-g")
+		.arg(GOP)
+		.arg("-b:v")
+		.arg("6.5M")
+		.arg("-maxrate")
+		.arg("6.5M")
+		.arg("-bufsize")
+		.arg("6.5M")
+		.arg("-profile:v")
+		.arg("main")
+		.arg("-level")
+		.arg("4.1")
+		.arg("-color_primaries")
+		.arg("1")
+		.arg("-color_trc")
+		.arg("1")
+		.arg("-colorspace")
+		.arg("1")
+		.arg("-muxdelay")
+		.arg("0")
+		.arg("-muxdelay")
+		.arg("0")
+		.arg("-var_stream_map")
+		.arg("v:0,name:v0")
+		.arg("-hls_segment_type")
+		.arg("mpegts")
+		.arg("-hls_time")
+		.arg("3.2")
+		.arg("-hls_flags")
+		.arg("delete_segments")
+		.arg("-hls_segment_filename")
+		.arg("%v-%d.ts")
+		.arg("-master_pl_name")
+		.arg("master0.m3u8")
+		.arg("variant-0-%v.m3u8")
+		.stdin(Stdio::piped())
+		.stdout(stdout())
+		.stderr(stderr())
+		.spawn()
+		.context("failed to spawn ffmpeg process");
+	ffmpeg
 }
 
 pub struct NoCertificateVerification {}

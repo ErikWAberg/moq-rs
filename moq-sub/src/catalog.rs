@@ -1,28 +1,168 @@
 use anyhow::Context;
 use moq_transport::cache::{fragment, segment, track};
 use serde_json::from_slice;
-use serde::Deserialize;
 use std::sync::Arc;
+use serde::{Deserialize, Deserializer};
+use serde::de::{MapAccess, Visitor};
+use std::fmt;
 
 pub struct CatalogSubscriber {
     track: track::Subscriber,
     on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
 }
 
-#[derive(Deserialize, Debug)]
-pub(crate) struct Track {
-    pub codec: String,
-    pub container: String,
-    pub data_track: String,
-    pub init_track: String,
-    pub kind: String,
+/**
+{
+  tracks: [
+    Track
+    {
+      codec: "Opus",
+      container: "mp4",
+      data_track: "audio.m4s",
+      init_track: "audio.mp4",
+      kind: "audio"
+    },
+    Track
+    {
+      codec: "avc1.64001e",
+      container: "mp4",
+      data_track: "video.m4s",
+      init_track: "video.mp4",
+      kind: "video"
+    }
+  ]
+}
+**/
+
+pub trait Track: std::fmt::Debug {
+    fn kind(&self) -> String;
+    fn container(&self) -> String;
+    fn codec(&self) -> String;
+    fn init_track(&self) -> String;
+    fn data_track(&self) -> String;
 }
 
 #[derive(Deserialize, Debug)]
-pub(crate) struct Catalog {
-    pub tracks: Vec<Track>,
+pub struct AudioTrack {
+    kind: String,
+    container: String,
+    codec: String,
+    channel_count: u32,
+    sample_rate: u32,
+    sample_size: u32,
+    bit_rate: Option<u32>,
+    init_track: String,
+    data_track: String,
 }
 
+impl Track for AudioTrack {
+
+        fn kind(&self) -> String {
+            self.kind.to_string()
+        }
+
+        fn container(&self) -> String {
+            self.container.to_string()
+        }
+
+        fn codec(&self) -> String {
+            self.codec.to_string()
+        }
+
+        fn init_track(&self) -> String {
+            self.init_track.to_string()
+        }
+
+        fn data_track(&self) -> String {
+            self.data_track.to_string()
+        }
+
+
+
+}
+
+#[derive(Deserialize, Debug)]
+pub struct VideoTrack {
+    kind: String,
+    container: String,
+    codec: String,
+    width: u32,
+    height: u32,
+    frame_rate: u32,
+    bit_rate: Option<u32>,
+    init_track: String,
+    data_track: String,
+}
+
+impl Track for VideoTrack {
+
+    fn kind(&self) -> String {
+        self.kind.to_string()
+    }
+
+    fn container(&self) -> String {
+        self.container.to_string()
+    }
+
+    fn codec(&self) -> String {
+        self.codec.to_string()
+    }
+
+    fn init_track(&self) -> String {
+        self.init_track.to_string()
+    }
+
+    fn data_track(&self) -> String {
+        self.data_track.to_string()
+    }
+
+
+
+}
+
+
+struct TrackVisitor;
+
+impl<'de> Visitor<'de> for TrackVisitor {
+    type Value = Box<dyn Track>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("a Track object")
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        let mut kind: Option<String> = None;
+        let mut value_map = serde_json::Map::new();
+        while let Some(key) = map.next_key()? {
+            if key == "kind" {
+                kind = map.next_value()?;
+            } else {
+                value_map.insert(key, map.next_value()?);
+            }
+        }
+        match kind {
+            Some(kind) if kind == "audio" => {
+                let track: AudioTrack = serde_json::from_value(serde_json::Value::Object(value_map)).unwrap();
+                Ok(Box::new(track))
+            }
+            Some(kind) if kind == "video" => {
+                let track: VideoTrack = serde_json::from_value(serde_json::Value::Object(value_map)).unwrap();
+                Ok(Box::new(track))
+            }
+            _ => Err(serde::de::Error::custom("kind field missing or invalid")),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Box<dyn Track> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(TrackVisitor)
+    }
+}
+#[derive(Deserialize, Debug)]
+pub struct Catalog {
+    pub(crate) tracks: Vec<Box<dyn Track>>,
+}
 impl CatalogSubscriber {
     pub fn new(track: track::Subscriber) -> Self {
         Self { track, on_catalog: None }
@@ -56,6 +196,8 @@ impl CatalogSubscriber {
         while let Some(fragment) = segment.fragment().await? {
             log::debug!("next fragment: {:?}", fragment);
             let value = Self::recv_fragment(fragment, base.clone()).await?;
+
+            log::info!("Value: {:?}", String::from_utf8(value.clone()));
 
             let catalog = from_slice(&value).context("failed to parse JSON")?;
 
