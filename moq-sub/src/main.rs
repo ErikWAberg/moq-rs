@@ -86,7 +86,7 @@ async fn main() -> anyhow::Result<()> {
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
-	let mut catalog_subscriber = catalog::CatalogSubscriber::new("catalog".to_string(), catalog_track_subscriber);
+	let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
 
 	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
 

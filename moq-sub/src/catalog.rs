@@ -5,7 +5,6 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 pub struct CatalogSubscriber {
-    name: String,
     track: track::Subscriber,
     on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
 }
@@ -27,8 +26,8 @@ pub(crate) struct Catalog {
 }
 
 impl CatalogSubscriber {
-    pub fn new(name: String, track: track::Subscriber) -> Self {
-        Self { name, track, on_catalog: None }
+    pub fn new(track: track::Subscriber) -> Self {
+        Self { track, on_catalog: None }
     }
 
     pub fn register_callback(&mut self, callback: Arc<dyn Fn(Catalog) + Send + Sync>) {
@@ -36,14 +35,12 @@ impl CatalogSubscriber {
     }
 
     pub async fn run(mut self) -> anyhow::Result<()> {
-        let name = self.name.clone();
         let on_catalog = Arc::clone(self.on_catalog.as_ref().unwrap());
         while let Some(segment) = self.track.segment().await.context("failed to get segment")? {
             log::debug!("got segment: {:?}", segment);
-            let segment_name = name.clone();
             let on_catalog = Arc::clone(&on_catalog);
             tokio::spawn(async move {
-                if let Err(err) = Self::recv_segment(segment_name, segment, Some(on_catalog)).await {
+                if let Err(err) = Self::recv_segment(segment, Some(on_catalog)).await {
                     log::warn!("failed to receive segment: {:?}", err);
                 }
             });
@@ -53,18 +50,16 @@ impl CatalogSubscriber {
     }
 
     async fn recv_segment(
-        name: String,
         mut segment: segment::Subscriber,
         on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>
     ) -> anyhow::Result<()> {
         let base = Vec::new();
         let mut first_catalog_parsed = false;
-        let mut catalog = Catalog { tracks: Vec::new() };
         while let Some(fragment) = segment.fragment().await? {
             log::debug!("next fragment: {:?}", fragment);
             let value = Self::recv_fragment(fragment, base.clone()).await?;
 
-            catalog = from_slice(&value).context("failed to parse JSON")?;
+            let catalog = from_slice(&value).context("failed to parse JSON")?;
 
             first_catalog_parsed = true;
             if first_catalog_parsed {
