@@ -4,6 +4,7 @@ use moq_transport::cache::{fragment, segment, track};
 use std::sync::Arc;
 use serde::{Deserialize, Deserializer};
 use serde::de::{MapAccess, Visitor};
+use log::info;
 
 
 /**
@@ -28,7 +29,6 @@ use serde::de::{MapAccess, Visitor};
   ]
 }
  **/
-
 #[derive(Deserialize, Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TrackKind {
@@ -36,6 +36,7 @@ pub enum TrackKind {
     Video,
 
 }
+
 impl TrackKind {
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -126,15 +127,18 @@ impl Track for AudioTrack {
         //args.push("-ac".to_string());
         //args.push(self.channel_count.to_string());
 
-        args.push("-i".to_string()); args.push(src.to_string());
+        args.push("-i".to_string());
+        args.push(src.to_string());
 
         args.push("-c:a".to_string());
         //args.push("libfdk_aac".to_string());
         //args.push("aac".to_string());
         args.push("copy".to_string());
 
-        args.push("-var_stream_map".to_string()); args.push("a:0,name:a0".to_string());
-        args.push("-b:a".to_string()); args.push("192k".to_string());
+        args.push("-var_stream_map".to_string());
+        args.push("a:0,name:a0".to_string());
+        args.push("-b:a".to_string());
+        args.push("192k".to_string());
         //-b:a bitrate
         //Make sure you compiled ffmpeg with --enable-libopus
         args
@@ -169,7 +173,8 @@ impl Track for VideoTrack {
         args.push(self.frame_rate.to_string());
         //args.push("-s:v".to_string());
         //args.push(format!("{}x{}", self.width, self.height));
-        args.push("-i".to_string()); args.push(src.to_string());
+        args.push("-i".to_string());
+        args.push(src.to_string());
 
         args.push("-s:v".to_string());
         args.push(format!("{}x{}", self.width, self.height));
@@ -187,18 +192,29 @@ impl Track for VideoTrack {
         };*/
         args.push("-g".to_string());
         args.push("160".to_string());
-        args.push("-var_stream_map".to_string()); args.push("v:0,name:v0".to_string());
-        args.push("-b:v".to_string()); args.push("6.5M".to_string());
+        args.push("-var_stream_map".to_string());
+        args.push("v:0,name:v0".to_string());
+        args.push("-b:v".to_string());
+        args.push("6.5M".to_string());
         //args.push("-profile:v".to_string()); args.push("main".to_string());
-        args.push("-color_primaries".to_string()); args.push("1".to_string());
-        args.push("-color_trc".to_string()); args.push("1".to_string());
-        args.push("-colorspace".to_string()); args.push("1".to_string());
-        args.push("-preset".to_string());args.push("ultrafast".to_string());
-        args.push("-crf".to_string());args.push("23".to_string());
-        args.push("-sc_threshold".to_string());args.push("0".to_string());
-        args.push("-maxrate".to_string());args.push("6.5M".to_string());
-        args.push("-bufsize".to_string());args.push("6.5M".to_string());
-        args.push("-level".to_string());args.push("4.1".to_string());
+        args.push("-color_primaries".to_string());
+        args.push("1".to_string());
+        args.push("-color_trc".to_string());
+        args.push("1".to_string());
+        args.push("-colorspace".to_string());
+        args.push("1".to_string());
+        args.push("-preset".to_string());
+        args.push("ultrafast".to_string());
+        args.push("-crf".to_string());
+        args.push("23".to_string());
+        args.push("-sc_threshold".to_string());
+        args.push("0".to_string());
+        args.push("-maxrate".to_string());
+        args.push("6.5M".to_string());
+        args.push("-bufsize".to_string());
+        args.push("6.5M".to_string());
+        args.push("-level".to_string());
+        args.push("4.1".to_string());
         args
     }
 }
@@ -262,66 +278,34 @@ impl Catalog {
 
 pub struct CatalogSubscriber {
     track: track::Subscriber,
-    on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
 }
 
 impl CatalogSubscriber {
     pub fn new(track: track::Subscriber) -> Self {
-        Self { track, on_catalog: None }
+        Self { track }
     }
 
-    pub fn register_callback(&mut self, callback: Arc<dyn Fn(Catalog) + Send + Sync>) {
-        self.on_catalog = Some(callback);
+    pub async fn run(mut self) -> anyhow::Result<Catalog> {
+        return if let Some(segment) = self.track.segment().await.context("failed to get segment")? {
+            info!("waiting segment");
+            let data = Self::recv_segment(segment).await?;
+            info!("got segment");
+            let catalog = Catalog::from_slice(&data).context("failed to parse catalog")?;
+            Ok(catalog)
+        } else {
+            Err(anyhow::anyhow!("not implemented"))
+        };
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
-        let on_catalog = Arc::clone(self.on_catalog.as_ref().unwrap());
-        while let Some(segment) = self.track.segment().await.context("failed to get segment")? {
-            log::debug!("got segment: {:?}", segment);
-            let on_catalog = Arc::clone(&on_catalog);
-            tokio::spawn(async move {
-                if let Err(err) = Self::recv_segment(segment, Some(on_catalog)).await {
-                    log::warn!("failed to receive segment: {:?}", err);
-                }
-            });
-        }
-
-        Ok(())
-    }
-
-    async fn recv_segment(
-        mut segment: segment::Subscriber,
-        on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
-    ) -> anyhow::Result<()> {
-        let base = Vec::new();
-        let mut first_catalog_parsed = false;
-        while let Some(fragment) = segment.fragment().await? {
+    async fn recv_segment(mut segment: segment::Subscriber) -> anyhow::Result<Vec<u8>> {
+        let mut base = Vec::new();
+        while let Some(mut fragment) = segment.fragment().await? {
             log::debug!("next fragment: {:?}", fragment);
-            let value = Self::recv_fragment(fragment, base.clone()).await?;
-
-            log::info!("Value: {:?}", String::from_utf8(value.clone()));
-
-            let catalog = Catalog::from_slice(&value).context("failed to parse JSON")?;
-
-
-            first_catalog_parsed = true;
-            if first_catalog_parsed {
-                if let Some(callback) = on_catalog {
-                    callback(catalog);
-                }
-                break;
+            while let Some(data) = fragment.chunk().await? {
+                base.extend_from_slice(&data);
             }
         }
-
-        Ok(())
-    }
-
-    async fn recv_fragment(mut fragment: fragment::Subscriber, mut buf: Vec<u8>) -> anyhow::Result<Vec<u8>> {
-        while let Some(data) = fragment.chunk().await? {
-            buf.extend_from_slice(&data);
-        }
-
-        Ok(buf)
+        Ok(base)
     }
 }
 

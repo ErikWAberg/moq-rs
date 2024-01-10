@@ -3,6 +3,7 @@ use std::ops::Deref;
 use anyhow::Context;
 use clap::Parser;
 use tokio::sync::Mutex;
+use log::info;
 
 mod cli;
 mod dump;
@@ -75,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
 	let mut endpoint = quinn::Endpoint::client(config.bind)?;
 	endpoint.set_default_client_config(quinn_client_config);
 
-	log::info!("connecting to relay: url={}", config.url);
+	info!("connecting to relay: url={}", config.url);
 
 	let session = webtransport_quinn::connect(&endpoint, &config.url)
 		.await
@@ -91,71 +92,16 @@ async fn main() -> anyhow::Result<()> {
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
-	let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
-
-	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
-		log::info!("Parsed catalog: {:?}", catalog);
-
-		for track in catalog.tracks {
-			let mut ffmpeg = ffmpeg::spawn(track.deref()).expect("Failed to spawn ffmpeg");
-
-			log::info!("running ffmpeg: {:?}", ffmpeg);
-
-			let ffmpeg_stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
-			let ffmpeg_stdin = Arc::new(Mutex::new(ffmpeg_stdin));
-
-			// Dump the init_track
-			let init_track = track.init_track().clone();
-			let init_track_subscriber = match subscriber.get_track(init_track.as_str()) {
-				Ok(subscriber) => subscriber,
-				Err(err) => {
-					log::error!("Failed to get init track {}: {:?}", init_track, err);
-					continue;
-				}
-			};
-			let mut init_dumper = init::InitTrackSubscriber::new(init_track_subscriber);
-			let subscriber = subscriber.clone();
-			let stream_name = stream_name.clone();
-			let ffmpeg_stdin = ffmpeg_stdin.clone();
-			let data_track = track.data_track().clone();
-
-			init_dumper.register_callback(Arc::new(move |init_track: Vec<u8>| {
-				log::info!("Got init track");
-
-				let track_subscriber = match subscriber.get_track(data_track.as_str()) {
-					Ok(subscriber) => Some(subscriber),
-					Err(err) => {
-						log::error!("Failed to get track {}: {:?}", data_track, err);
-						None
-					}
-				};
-				if let Some(track_subscriber) = track_subscriber {
-					let track_data_track = data_track.clone();
-					let ffmpeg_stdin = ffmpeg_stdin.clone();
-					let dumper = dump::Subscriber::new(track_data_track.to_string(), format!("{}/{}", stream_name, track_data_track), track_subscriber, init_track, ffmpeg_stdin);
-					tokio::spawn(async move {
-						if let Err(err) = dumper.run().await {
-							log::warn!("Failed to run dumper for track {}: {:?}", track_data_track, err);
-						}
-					});
-				}
-
-			}));
-			tokio::spawn(async move {
-				if let Err(err) = init_dumper.run().await {
-					log::warn!("Failed to run dumper for init track {}: {:?}", init_track, err);
-				}
-			});
-
-		}
-	}));
+	let handle = tokio::spawn(async move {
+		let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
+		info!("created subscriber");
+		let catalog = catalog_subscriber.run().await;
+		info!("catalog: {catalog:?}");
+	});
 
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = catalog_subscriber.run() => res.context("catalog dumper error")?,
-	}
-	tokio::select! {
-		_ =  tokio::task::yield_now() => {},
+		res = handle => res.context("asd")?
 	}
 
 	Ok(())
