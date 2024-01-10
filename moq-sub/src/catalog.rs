@@ -109,10 +109,10 @@ impl Track for AudioTrack {
     }
     fn ffmpeg_args(&self) -> Vec<String> {
         let mut args = Vec::new();
-        args.push("-map".to_string());
-        args.push("0:a".to_string());
-        //args.push("-c:a".to_string());
-        //args.push("copy".to_string());
+        //args.push("-map".to_string());
+        //args.push("0:a".to_string());
+        args.push("-c:a".to_string());
+        args.push("copy".to_string());
         args.push("-ar".to_string());
         args.push(self.sample_rate.to_string());
         //-b:a bitrate
@@ -144,12 +144,13 @@ impl Track for VideoTrack {
         let mut args = Vec::new();
         args.push("-r".to_string());
         args.push(self.frame_rate.to_string());
-        args.push("-map".to_string());
-        args.push("0:v".to_string());
-        args.push("-c:v".to_string());
-        args.push("libx264".to_string());
         args.push("-s:v".to_string());
-        args.push(format!("{}x{}", self.width, self.height));
+        args.push(format!("{}x{}", self.width, self.height));        //args.push("-map".to_string());
+        //args.push("0:v".to_string());
+        args.push("-c:v".to_string());
+        //args.push("libx264".to_string());
+        args.push("copy".to_string());
+
 
         let gop = match self.frame_rate {
             30 => "96",
@@ -160,7 +161,7 @@ impl Track for VideoTrack {
         args.push(gop.to_string());
         args.push("-var_stream_map".to_string()); args.push("v:0,name:v0".to_string());
         args.push("-b:v".to_string()); args.push("6.5M".to_string());
-        args.push("-profile:v".to_string()); args.push("main".to_string());
+        //args.push("-profile:v".to_string()); args.push("main".to_string());
         args.push("-color_primaries".to_string()); args.push("1".to_string());
         args.push("-color_trc".to_string()); args.push("1".to_string());
         args.push("-colorspace".to_string()); args.push("1".to_string());

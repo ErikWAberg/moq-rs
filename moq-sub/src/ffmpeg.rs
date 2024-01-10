@@ -8,9 +8,7 @@ use crate::catalog::{AudioTrack, Track, TrackKind, VideoTrack};
 pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 	let args = args(track);
 
-
-	let command_str = format!("ffmpeg {}", args.join(" "));
-	log::info!("Executing: {}", command_str);
+	log::info!("Executing ffmpeg {}:\n\n{}\n", track.kind().as_str(), args.join(" "));
 
 	let ffmpeg = Command::new("ffmpeg")
 		.current_dir("dump")
@@ -26,26 +24,27 @@ pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 
 fn args(track: &dyn Track) -> Vec<String> {
 
-	let preset = "ultrafast";
-	let crf = "23";
-	let mut generic = [
-		//"-analyzeduration", "1000",
+	let mut args = [
 		"-i", "pipe:0",
-		"-preset", preset,
-		"-crf", crf,
+		"-analyzeduration", "1000",
+	].map(|s| s.to_string()).to_vec();
+
+	let mut post_args = [
+		"-preset", "ultrafast",
+		"-crf", "23",
 		"-sc_threshold", "0",
 		"-maxrate", "6.5M",
 		"-bufsize", "6.5M",
 		"-level", "4.1",
 		"-muxdelay", "0",
-
 		"-hls_segment_type", "mpegts",
 		"-hls_time", "3.2",
 		"-hls_flags", "delete_segments",
 	].map(|s| s.to_string()).to_vec();
 
-	let mut args = track.ffmpeg_args();
-	args.append(&mut generic);
+
+	args.append(&mut track.ffmpeg_args());
+	args.append(&mut post_args);
 	args.push("-hls_segment_filename".to_string());
 	args.push(format!("{}-%03d.ts", track.kind().as_str()));
 	args.push(format!("{}.m3u8", track.kind().as_str()));
