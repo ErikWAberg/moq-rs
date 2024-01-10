@@ -1,15 +1,10 @@
+use std::fmt;
 use anyhow::Context;
 use moq_transport::cache::{fragment, segment, track};
-use serde_json::from_slice;
 use std::sync::Arc;
 use serde::{Deserialize, Deserializer};
 use serde::de::{MapAccess, Visitor};
-use std::fmt;
 
-pub struct CatalogSubscriber {
-    track: track::Subscriber,
-    on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
-}
 
 /**
 {
@@ -32,94 +27,99 @@ pub struct CatalogSubscriber {
     }
   ]
 }
-**/
+ **/
+
+#[derive(Deserialize, Debug, Clone, Copy, Ord, PartialOrd, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackKind {
+    Audio,
+    Video,
+
+}
+impl TrackKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TrackKind::Audio => "audio",
+            TrackKind::Video => "video",
+        }
+    }
+    pub fn as_short_str(&self) -> &'static str {
+        match self {
+            TrackKind::Audio => "a",
+            TrackKind::Video => "v",
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AudioTrack {
+    pub kind: TrackKind,
+    pub container: String,
+    pub codec: String,
+    pub channel_count: u32,
+    pub sample_rate: u32,
+    pub sample_size: u32,
+    pub bit_rate: Option<u32>,
+    pub init_track: String,
+    pub data_track: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct VideoTrack {
+    pub kind: TrackKind,
+    pub container: String,
+    pub codec: String,
+    pub width: u32,
+    pub height: u32,
+    pub frame_rate: u32,
+    pub bit_rate: Option<u32>,
+    pub init_track: String,
+    pub data_track: String,
+}
 
 pub trait Track: std::fmt::Debug {
-    fn kind(&self) -> String;
+    fn kind(&self) -> TrackKind;
     fn container(&self) -> String;
     fn codec(&self) -> String;
     fn init_track(&self) -> String;
     fn data_track(&self) -> String;
 }
 
-#[derive(Deserialize, Debug)]
-pub struct AudioTrack {
-    kind: String,
-    container: String,
-    codec: String,
-    channel_count: u32,
-    sample_rate: u32,
-    sample_size: u32,
-    bit_rate: Option<u32>,
-    init_track: String,
-    data_track: String,
-}
-
 impl Track for AudioTrack {
-
-        fn kind(&self) -> String {
-            self.kind.to_string()
-        }
-
-        fn container(&self) -> String {
-            self.container.to_string()
-        }
-
-        fn codec(&self) -> String {
-            self.codec.to_string()
-        }
-
-        fn init_track(&self) -> String {
-            self.init_track.to_string()
-        }
-
-        fn data_track(&self) -> String {
-            self.data_track.to_string()
-        }
-
-
-
-}
-
-#[derive(Deserialize, Debug)]
-pub struct VideoTrack {
-    kind: String,
-    container: String,
-    codec: String,
-    width: u32,
-    height: u32,
-    frame_rate: u32,
-    bit_rate: Option<u32>,
-    init_track: String,
-    data_track: String,
-}
-
-impl Track for VideoTrack {
-
-    fn kind(&self) -> String {
-        self.kind.to_string()
+    fn kind(&self) -> TrackKind {
+        self.kind
     }
-
     fn container(&self) -> String {
         self.container.to_string()
     }
-
     fn codec(&self) -> String {
         self.codec.to_string()
     }
-
     fn init_track(&self) -> String {
         self.init_track.to_string()
     }
-
     fn data_track(&self) -> String {
         self.data_track.to_string()
     }
-
-
-
 }
 
+impl Track for VideoTrack {
+    fn kind(&self) -> TrackKind {
+        self.kind
+    }
+    fn container(&self) -> String {
+        self.container.to_string()
+    }
+    fn codec(&self) -> String {
+        self.codec.to_string()
+    }
+    fn init_track(&self) -> String {
+        self.init_track.to_string()
+    }
+    fn data_track(&self) -> String {
+        self.data_track.to_string()
+    }
+}
 
 struct TrackVisitor;
 
@@ -161,10 +161,28 @@ impl<'de> Deserialize<'de> for Box<dyn Track> {
         deserializer.deserialize_map(TrackVisitor)
     }
 }
+
 #[derive(Deserialize, Debug)]
 pub struct Catalog {
     pub(crate) tracks: Vec<Box<dyn Track>>,
 }
+
+impl Catalog {
+    fn from_slice(slice: &[u8]) -> Result<Catalog, serde_json::Error> {
+        serde_json::from_slice(slice)
+    }
+    #[allow(dead_code)]
+    fn from_str(slice: &str) -> Result<Catalog, serde_json::Error> {
+        let root: Catalog = serde_json::from_str(slice)?;
+        Ok(root)
+    }
+}
+
+pub struct CatalogSubscriber {
+    track: track::Subscriber,
+    on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
+}
+
 impl CatalogSubscriber {
     pub fn new(track: track::Subscriber) -> Self {
         Self { track, on_catalog: None }
@@ -191,7 +209,7 @@ impl CatalogSubscriber {
 
     async fn recv_segment(
         mut segment: segment::Subscriber,
-        on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>
+        on_catalog: Option<Arc<dyn Fn(Catalog) + Send + Sync>>,
     ) -> anyhow::Result<()> {
         let base = Vec::new();
         let mut first_catalog_parsed = false;
@@ -201,7 +219,8 @@ impl CatalogSubscriber {
 
             log::info!("Value: {:?}", String::from_utf8(value.clone()));
 
-            let catalog = from_slice(&value).context("failed to parse JSON")?;
+            let catalog = Catalog::from_slice(&value).context("failed to parse JSON")?;
+
 
             first_catalog_parsed = true;
             if first_catalog_parsed {
@@ -221,5 +240,48 @@ impl CatalogSubscriber {
         }
 
         Ok(buf)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use crate::catalog::*;
+
+    #[test]
+    fn it_works() {
+        let catalog = Catalog::from_str(
+            r#"
+{
+  "tracks": [
+    {
+      "container": "mp4",
+      "kind": "audio",
+      "init_track": "audio.mp4",
+      "data_track": "audio.m4s",
+      "codec": "Opus",
+      "sample_rate": 48000,
+      "sample_size": 16,
+      "channel_count": 2,
+      "bit_rate": 128000
+    },
+    {
+      "container": "mp4",
+      "kind": "video",
+      "init_track": "video.mp4",
+      "data_track": "video.m4s",
+      "codec": "avc1.64001e",
+      "width": 853,
+      "height": 480,
+      "frame_rate": 30,
+      "bit_rate": 2000000
+    }
+  ]
+}
+            "#, ).unwrap();
+
+        println!("catalog: {catalog:?}");
+
+        assert_eq!(catalog.tracks.len(), 2);
     }
 }

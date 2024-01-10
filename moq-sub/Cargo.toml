@@ -37,6 +37,8 @@ env_logger = "0.9"
 mp4 = "0.13"
 anyhow = { version = "1", features = ["backtrace"] }
 serde_json = "1"
+serde_derive = "1"
+typetag = "0.2"
 rfc6381-codec = "0.1"
 tracing = "0.1"
 tracing-subscriber = "0.3"
