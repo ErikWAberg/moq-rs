@@ -20,23 +20,36 @@ use catalog::Catalog;
 use moq_transport::cache::broadcast::Subscriber;
 use crate::catalog::{Track, TrackKind};
 
+
 async fn do_all_the_things(subscriber: Subscriber) -> anyhow::Result<()> {
 	let mut catalog_track_subscriber = subscriber
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
 	let tracks = init::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
+
 	if let Some(first_track) = tracks.first() {
 
 		let mut init_track_subscriber = subscriber
 			.get_track(first_track.init_track().as_str())
-			.context("failed to get catalog track")?;
+			.context("failed to get init track")?;
 
 		let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
-
-		let filename = format!("dump/{}-continuous.mp4", first_track.kind().as_str());
-		let mut continuous_file = File::create(filename).await.context("failed to create init file")?;
+		File::create(format!("dump/{}-init.mp4", first_track.kind().as_str())).await.context("failed to create init file")?
+			.write_all(&init_track_data).await.context("failed to write to file")?;
+		let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", first_track.kind().as_str())).await.context("failed to create init file")?;
 		continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
+
+
+		let mut data_track_subscriber = subscriber
+			.get_track(first_track.data_track().as_str())
+			.context("failed to get data track")?;
+		for i in 0..1000 {
+			let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
+			File::create(format!("dump/{}-{i}.mp4", first_track.kind().as_str())).await.context("failed to create init file")?
+				.write_all(&init_track_data).await.context("failed to write to file")?;
+			continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
+		}
 
 
 	}
