@@ -4,6 +4,8 @@ use anyhow::Context;
 use clap::Parser;
 use tokio::sync::Mutex;
 use log::info;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 
 mod cli;
 mod dump;
@@ -15,9 +17,32 @@ use cli::*;
 
 use moq_transport::cache::broadcast;
 use catalog::Catalog;
+use moq_transport::cache::broadcast::Subscriber;
 use crate::catalog::{Track, TrackKind};
 
-// TODO: clap complete
+async fn do_all_the_things(subscriber: Subscriber) -> anyhow::Result<()> {
+	let mut catalog_track_subscriber = subscriber
+		.get_track(".catalog")
+		.context("failed to get catalog track")?;
+
+	let tracks = init::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
+	if let Some(first_track) = tracks.first() {
+
+		let mut init_track_subscriber = subscriber
+			.get_track(first_track.init_track().as_str())
+			.context("failed to get catalog track")?;
+
+		let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
+
+		let filename = format!("dump/{}-continuous.mp4", first_track.kind().as_str());
+		let mut continuous_file = File::create(filename).await.context("failed to create init file")?;
+		continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
+
+
+	}
+
+	Ok(())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -88,20 +113,20 @@ async fn main() -> anyhow::Result<()> {
 
 	let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
 
-	let catalog_track_subscriber = subscriber
-		.get_track(".catalog")
-		.context("failed to get catalog track")?;
 
-	let handle = tokio::spawn(async move {
-		let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
-		info!("created subscriber");
-		let catalog = catalog_subscriber.run().await;
-		info!("catalog: {catalog:?}");
-	});
+
+	/*let handle = tokio::spawn(async move {
+		match do_all_the_things(subscriber).await {
+			Ok(_) => {}
+			Err(_) => {}
+		};
+
+
+	});*/
 
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = handle => res.context("asd")?
+		res = do_all_the_things(subscriber) => res.context("asd")?
 	}
 
 	Ok(())

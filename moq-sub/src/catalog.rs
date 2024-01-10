@@ -5,6 +5,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Deserializer};
 use serde::de::{MapAccess, Visitor};
 use log::info;
+use crate::init;
 
 
 /**
@@ -266,46 +267,13 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    fn from_slice(slice: &[u8]) -> Result<Catalog, serde_json::Error> {
+    pub(crate) fn from_slice(slice: &[u8]) -> Result<Catalog, serde_json::Error> {
         serde_json::from_slice(slice)
     }
     #[allow(dead_code)]
     fn from_str(slice: &str) -> Result<Catalog, serde_json::Error> {
         let root: Catalog = serde_json::from_str(slice)?;
         Ok(root)
-    }
-}
-
-pub struct CatalogSubscriber {
-    track: track::Subscriber,
-}
-
-impl CatalogSubscriber {
-    pub fn new(track: track::Subscriber) -> Self {
-        Self { track }
-    }
-
-    pub async fn run(mut self) -> anyhow::Result<Catalog> {
-        return if let Some(segment) = self.track.segment().await.context("failed to get segment")? {
-            info!("waiting segment");
-            let data = Self::recv_segment(segment).await?;
-            info!("got segment");
-            let catalog = Catalog::from_slice(&data).context("failed to parse catalog")?;
-            Ok(catalog)
-        } else {
-            Err(anyhow::anyhow!("not implemented"))
-        };
-    }
-
-    async fn recv_segment(mut segment: segment::Subscriber) -> anyhow::Result<Vec<u8>> {
-        let mut base = Vec::new();
-        while let Some(mut fragment) = segment.fragment().await? {
-            log::debug!("next fragment: {:?}", fragment);
-            while let Some(data) = fragment.chunk().await? {
-                base.extend_from_slice(&data);
-            }
-        }
-        Ok(base)
     }
 }
 
