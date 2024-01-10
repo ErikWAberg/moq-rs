@@ -5,11 +5,13 @@ use anyhow::{Context, Error};
 use clap::Parser;
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
+use tokio::sync::mpsc::{Sender, Receiver};
 
 mod cli;
 mod dump;
 mod catalog;
 mod init;
+mod channel;
 
 use cli::*;
 
@@ -91,76 +93,37 @@ async fn main() -> anyhow::Result<()> {
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
-	let mut catalog_subscriber = catalog::CatalogSubscriber::new(catalog_track_subscriber);
+	let (tx, mut rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = tokio::sync::mpsc::channel(1000);
 
-	catalog_subscriber.register_callback(Arc::new(move |catalog: Catalog| {
-		log::info!("Parsed catalog: {:?}", catalog);
+	let channel_subscriber = channel::ChannelSubscriber::new(catalog_track_subscriber, tx);
 
-		let mut ffmpeg = spawn_ffmpeg().expect("Failed to spawn ffmpeg");
+	tokio::spawn(async move {
+		log::info!("Waiting for catalog");
+		let message = rx.recv().await.unwrap();
 
-		log::info!("running ffmpeg: {:?}", ffmpeg);
+		log::info!("Done waiting for catalog");
+		let catalog = serde_json::from_slice::<Catalog>(&message).context("failed to parse JSON").unwrap();
 
+		for (i, track) in catalog.tracks.iter().enumerate() {
+			let (tx, mut rx): (Sender<Vec<u8>>, Receiver<Vec<u8>>) = tokio::sync::mpsc::channel(1000);
 
-		let ffmpeg_stdin = ffmpeg.stdin.take().expect("Failed to open stdin");
-
-		let ffmpeg_stdin = Arc::new(Mutex::new(ffmpeg_stdin));
-
-
-		for track in catalog.tracks {
-
-			// Dump the init_track
-			let init_track = track.init_track().clone();
-			let init_track_subscriber = match subscriber.get_track(init_track.as_str()) {
-				Ok(subscriber) => subscriber,
-				Err(err) => {
-					log::error!("Failed to get init track {}: {:?}", init_track, err);
-					continue;
-				}
-			};
-			let mut init_dumper = init::InitTrackSubscriber::new(init_track_subscriber);
-			let subscriber = subscriber.clone();
-			let stream_name = stream_name.clone();
-			let ffmpeg_stdin = ffmpeg_stdin.clone();
-			let data_track = track.data_track().clone();
-
-			init_dumper.register_callback(Arc::new(move |init_track: Vec<u8>| {
-				log::info!("Got init track");
-
-				let track_subscriber = match subscriber.get_track(data_track.as_str()) {
-					Ok(subscriber) => Some(subscriber),
-					Err(err) => {
-						log::error!("Failed to get track {}: {:?}", data_track, err);
-						None
-					}
-				};
-				if let Some(track_subscriber) = track_subscriber {
-					let track_data_track = data_track.clone();
-					let ffmpeg_stdin = ffmpeg_stdin.clone();
-					let dumper = dump::Subscriber::new(format!("{}/{}", stream_name,track_data_track), track_subscriber, init_track, ffmpeg_stdin);
-					tokio::spawn(async move {
-						if let Err(err) = dumper.run().await {
-							log::warn!("Failed to run dumper for track {}: {:?}", track_data_track, err);
-						}
-					});
-				}
-
-			}));
-			tokio::spawn(async move {
-				if let Err(err) = init_dumper.run().await {
-					log::warn!("Failed to run dumper for init track {}: {:?}", init_track, err);
-				}
-			});
+			let track_subscriber = subscriber
+				.get_track(track.init_track().as_str())
+				.context("failed to get catalog track")
+				.unwrap();
+			let channel_subscriber = channel::ChannelSubscriber::new(track_subscriber, tx);
 
 		}
-	}));
+
+	});
 
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = catalog_subscriber.run() => res.context("catalog dumper error")?,
+		res = channel_subscriber.run() => res.context("catalog dumper error")?,
 	}
-	tokio::select! {
-		_ =  tokio::task::yield_now() => {},
-	}
+
+
+
 
 	Ok(())
 }
