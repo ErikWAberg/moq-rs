@@ -132,7 +132,7 @@ async fn main() -> anyhow::Result<()> {
 				if let Some(track_subscriber) = track_subscriber {
 					let track_data_track = data_track.clone();
 					let ffmpeg_stdin = ffmpeg_stdin.clone();
-					let dumper = dump::Subscriber::new(format!("{}/{}", stream_name,track_data_track), track_subscriber, init_track, ffmpeg_stdin);
+					let dumper = dump::Subscriber::new(track_data_track.to_string(), format!("{}/{}", stream_name, track_data_track), track_subscriber, init_track, ffmpeg_stdin);
 					tokio::spawn(async move {
 						if let Err(err) = dumper.run().await {
 							log::warn!("Failed to run dumper for track {}: {:?}", track_data_track, err);

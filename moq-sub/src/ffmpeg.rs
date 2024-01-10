@@ -23,19 +23,19 @@ pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 }
 
 fn args(track: &dyn Track) -> Vec<String> {
-
 	let mut args = [
+		"-y", "-hide_banner",
 		"-i", "pipe:0",
-		"-analyzeduration", "1000",
+		format!("{}-pipe.mp4", track.kind().as_str()).as_str()
+	].map(|s| s.to_string()).to_vec();
+/*
+	let mut args = [
+	//	"-i", "pipe:0",
+		"-y", "-hide_banner",
+		"-analyzeduration", "100000",
 	].map(|s| s.to_string()).to_vec();
 
 	let mut post_args = [
-		"-preset", "ultrafast",
-		"-crf", "23",
-		"-sc_threshold", "0",
-		"-maxrate", "6.5M",
-		"-bufsize", "6.5M",
-		"-level", "4.1",
 		"-muxdelay", "0",
 		"-hls_segment_type", "mpegts",
 		"-hls_time", "3.2",
@@ -43,11 +43,11 @@ fn args(track: &dyn Track) -> Vec<String> {
 	].map(|s| s.to_string()).to_vec();
 
 
-	args.append(&mut track.ffmpeg_args());
+	args.append(&mut track.ffmpeg_args("pipe:0"));
 	args.append(&mut post_args);
 	args.push("-hls_segment_filename".to_string());
 	args.push(format!("{}-%03d.ts", track.kind().as_str()));
-	args.push(format!("{}.m3u8", track.kind().as_str()));
+	args.push(format!("{}.m3u8", track.kind().as_str()));*/
 	args
 }
 
