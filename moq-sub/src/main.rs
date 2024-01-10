@@ -1,15 +1,14 @@
 use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
-use std::process::Stdio;
-use anyhow::{Context, Error};
+use anyhow::Context;
 use clap::Parser;
-use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 mod cli;
 mod dump;
 mod catalog;
 mod init;
+mod ffmpeg;
 
 use cli::*;
 
@@ -98,7 +97,7 @@ async fn main() -> anyhow::Result<()> {
 		log::info!("Parsed catalog: {:?}", catalog);
 
 		for track in catalog.tracks {
-			let mut ffmpeg = spawn_ffmpeg(track.deref()).expect("Failed to spawn ffmpeg");
+			let mut ffmpeg = ffmpeg::spawn(track.deref()).expect("Failed to spawn ffmpeg");
 
 			log::info!("running ffmpeg: {:?}", ffmpeg);
 
@@ -162,84 +161,6 @@ async fn main() -> anyhow::Result<()> {
 	Ok(())
 }
 
-fn spawn_ffmpeg(track: &dyn Track) -> Result<Child, Error> {
-	let args = ffmpeg_args(track);
-
-
-	let command_str = format!("ffmpeg {}", args.join(" "));
-	log::info!("Executing: {}", command_str);
-
-	let ffmpeg = Command::new("ffmpeg")
-		.current_dir("dump")
-		.args(&args)
-		.stdin(Stdio::piped())
-		.stdout(Stdio::inherit())
-		.stderr(Stdio::inherit())
-		.spawn()
-		.context("failed to spawn ffmpeg process")?;
-
-	Ok(ffmpeg)
-}
-
-fn ffmpeg_args(track: &dyn Track) -> Vec<String> {
-
-	let mut args: Vec<String> = Vec::new();
-
-	if track.kind() == TrackKind::Audio {
-		args.push("-map".to_string());
-		args.push("0:a".to_string());
-	} else {
-		let width = 1920;
-		let height = 1080;
-		let fps = 30;
-		args.push("-map".to_string());
-		args.push("0:v".to_string());
-		args.push("-c:v".to_string());
-		args.push("libx264".to_string());
-		args.push("-s:v".to_string());
-		args.push(format!("{}x{}", width, height));
-		args.push("-r".to_string());
-		args.push(format!("{}", fps));
-		let gop = match fps {
-			30 => "96",
-			50 => "160",
-			_ => panic!("invalid fps")
-		};
-		args.push("-g".to_string());
-		args.push(gop.to_string());
-	};
-
-	let preset = "ultrafast";
-	let crf = "23";
-
-	let mut args = [
-		"-r", "30",
-		"-analyzeduration", "1000",
-		"-i", "pipe:0",
-		"-preset", preset,
-		"-crf", crf,
-		"-sc_threshold", "0",
-		"-b:v", "6.5M",
-		"-maxrate", "6.5M",
-		"-bufsize", "6.5M",
-		"-profile:v", "main",
-		"-level", "4.1",
-		"-color_primaries", "1",
-		"-color_trc", "1",
-		"-colorspace", "1",
-		"-muxdelay", "0",
-		//"-var_stream_map", "v:0,name:v0",
-		"-hls_segment_type", "mpegts",
-		"-hls_time", "3.2",
-		"-hls_flags", "delete_segments",
-	].map(|s| s.to_string()).to_vec();
-
-	args.push("-hls_segment_filename".to_string());
-	args.push(format!("{}-%03d.ts", track.kind().as_str()));
-	args.push(format!("{}.m3u8", track.kind().as_str()));
-	args
-}
-
 pub struct NoCertificateVerification {}
 
 impl rustls::client::ServerCertVerifier for NoCertificateVerification {
@@ -253,50 +174,5 @@ impl rustls::client::ServerCertVerifier for NoCertificateVerification {
 		_now: time::SystemTime,
 	) -> Result<rustls::client::ServerCertVerified, rustls::Error> {
 		Ok(rustls::client::ServerCertVerified::assertion())
-	}
-}
-
-
-#[cfg(test)]
-mod tests {
-	use TrackKind::Audio;
-	use crate::*;
-	use crate::catalog::{AudioTrack, VideoTrack};
-
-	#[test]
-	fn audio() {
-		let audio = AudioTrack {
-			kind: Audio,
-			bit_rate: Some(128000),
-			data_track: "audio.m4s".to_string(),
-			init_track: "audio.mp4".to_string(),
-			codec: "Opus".to_string(),
-			container: "mp4".to_string(),
-
-			sample_size: 16,
-			channel_count: 2,
-			sample_rate: 48000,
-		};
-		let command_str = ffmpeg_args(&audio).join(" ");
-
-		println!("audio ffmpeg args\n: {command_str:?}");
-	}
-	#[test]
-	fn video() {
-		let video = VideoTrack {
-			kind: TrackKind::Video,
-			bit_rate: Some(128000),
-			codec: "Opus".to_string(),
-			container: "mp4".to_string(),
-			data_track: "video.m4s".to_string(),
-			init_track: "video.mp4".to_string(),
-
-			height: 1080,
-			width: 1920,
-			frame_rate: 50,
-		};
-		let command_str = ffmpeg_args(&video).join(" ");
-
-		println!("video ffmpeg args\n: {command_str:?}");
 	}
 }
