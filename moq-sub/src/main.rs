@@ -2,10 +2,13 @@ use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
 use anyhow::Context;
 use clap::Parser;
+use futures::stream::FuturesUnordered;
+use futures::StreamExt;
 use tokio::sync::Mutex;
 use log::info;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::task::JoinHandle;
 
 mod cli;
 mod dump;
@@ -21,39 +24,49 @@ use moq_transport::cache::broadcast::Subscriber;
 use crate::catalog::{Track, TrackKind};
 
 
-async fn do_all_the_things(subscriber: Subscriber) -> anyhow::Result<()> {
+async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
+	let mut init_track_subscriber = subscriber
+		.get_track(track.init_track().as_str())
+		.context("failed to get init track")?;
+
+	let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
+	File::create(format!("dump/{}-init.mp4", track.kind().as_str())).await.context("failed to create init file")?
+		.write_all(&init_track_data).await.context("failed to write to file")?;
+	let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file")?;
+	continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
+
+
+	let mut data_track_subscriber = subscriber
+		.get_track(track.data_track().as_str())
+		.context("failed to get data track")?;
+	for i in 0..10 {
+		let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
+		File::create(format!("dump/{}-{i}.mp4", track.kind().as_str())).await.context("failed to create init file")?
+			.write_all(&init_track_data).await.context("failed to write to file")?;
+		continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
+	}
+
+	Ok(())
+}
+
+async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 	let mut catalog_track_subscriber = subscriber
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
 	let tracks = init::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
+	let mut handles = FuturesUnordered::new();
 
-	if let Some(first_track) = tracks.first() {
-
-		let mut init_track_subscriber = subscriber
-			.get_track(first_track.init_track().as_str())
-			.context("failed to get init track")?;
-
-		let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
-		File::create(format!("dump/{}-init.mp4", first_track.kind().as_str())).await.context("failed to create init file")?
-			.write_all(&init_track_data).await.context("failed to write to file")?;
-		let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", first_track.kind().as_str())).await.context("failed to create init file")?;
-		continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
-
-
-		let mut data_track_subscriber = subscriber
-			.get_track(first_track.data_track().as_str())
-			.context("failed to get data track")?;
-		for i in 0..1000 {
-			let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
-			File::create(format!("dump/{}-{i}.mp4", first_track.kind().as_str())).await.context("failed to create init file")?
-				.write_all(&init_track_data).await.context("failed to write to file")?;
-			continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
-		}
-
-
+	for track in tracks {
+		let subscriber  = subscriber.clone();
+		let handle = tokio::spawn(async move {
+			track_subscriber(track, subscriber).await.unwrap();
+		});
+		handles.push(handle);
 	}
-
+	tokio::select! {
+		_ = handles.next(), if ! handles.is_empty() => {}
+	}
 	Ok(())
 }
 
@@ -127,19 +140,9 @@ async fn main() -> anyhow::Result<()> {
 	let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
 
 
-
-	/*let handle = tokio::spawn(async move {
-		match do_all_the_things(subscriber).await {
-			Ok(_) => {}
-			Err(_) => {}
-		};
-
-
-	});*/
-
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = do_all_the_things(subscriber) => res.context("asd")?
+		res = run_track_subscribers(subscriber) => res.context("application error")?
 	}
 
 	Ok(())

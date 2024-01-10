@@ -79,7 +79,7 @@ pub struct VideoTrack {
     pub data_track: String,
 }
 
-pub trait Track: std::fmt::Debug {
+pub trait Track: std::fmt::Debug + Send {
     fn kind(&self) -> TrackKind;
     fn container(&self) -> String;
     fn codec(&self) -> String;
