@@ -82,18 +82,34 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 
     let mut args = Vec::new();
 
-
+    args.push("-y".to_string());
+    args.push("-hide_banner".to_string());
     for (reader, _) in &pipes {
         args.push("-i".to_string());
         let formatted_string = format!("pipe:{}", reader);
         args.push(formatted_string);
     }
+    args.push("-f".to_string());
+    args.push("hls".to_string());
+    args.push("-hls_time".to_string());
+    args.push("3.2".to_string());
+    args.push("-hls_segment_filename".to_string());
+    args.push("%v-%d.ts".to_string());
+    args.push("-hls_flags".to_string());
+    args.push("delete_segments".to_string());
+    args.push("-master_pl_name".to_string());
+    args.push("master0.m3u8".to_string());
+    args.push("-c:v".to_string());
+    args.push("copy".to_string()); // Copy video as is
+    args.push("-c:a".to_string());
+    args.push("aac".to_string()); // Convert audio to AAC
 
-    args.push("dump/output.mp4".to_string());
+    args.push("variant-0-%v.m3u8".to_string());
 
     info!("ffmpeg args: {:?}", args);
 
     let _ = Command::new("ffmpeg")
+        .current_dir("dump")
         .args(&args)
         .spawn()
         .context("failed to spawn FFmpeg process")?;
