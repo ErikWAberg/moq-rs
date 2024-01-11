@@ -10,6 +10,7 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{error, info};
 use notify::{Error, Event, EventKind, RecursiveMode, Watcher};
+use notify::WatcherKind::Inotify;
 use tokio::fs as TokioFs;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
@@ -25,7 +26,32 @@ mod dump;
 mod catalog;
 mod init;
 mod ffmpeg;
+/*
+async fn linux_file_renamer() -> anyhow::Result<()> {
 
+	let mut inotify = Inotify::init()
+		.expect("Error while initializing inotify instance");
+
+// Watch for modify and close events.
+	inotify
+		.watches()
+		.add(
+			"/tmp/inotify-rs-test-file",
+			 WatchMask::CLOSE,
+		)
+		.expect("Failed to add file watch");
+
+// Read events that were added with `Watches::add` above.
+	let mut buffer = [0; 1024];
+	let events = inotify.read_events_blocking(&mut buffer)
+		.expect("Error while reading events");
+
+	for event in events {
+		// Handle event
+	}
+
+	Ok(())
+}*/
 async fn file_renamer() -> anyhow::Result<()> {
 
 	let ntp_epoch_offset = Duration::milliseconds(2208988800000);
@@ -48,8 +74,20 @@ async fn file_renamer() -> anyhow::Result<()> {
 							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
 								let segment = parts[0];
 								let segment_no = segment.parse::<u32>().unwrap();
-								let new_name = format!("out/{}-{}", segment_timestamp(start, segment_no), parts[1]); // ensure this function exists
-								fs::rename(&path, new_name).expect("rename failed");
+								if segment_no > 3 {
+									let seg_moved = segment_no - 3;
+									let new_name = format!("out/{}-{}", segment_timestamp(start, seg_moved), parts[1]);
+									let older_file= format!("{}-{}", seg_moved, parts[1]);
+									let x = path.parent().unwrap().join(Path::new(older_file.as_str()));
+									let p = Path::new(x.as_path());
+									//fs::rename(&p, new_name).expect("rename failed");
+
+									if parts[1].ends_with("a0.mp4") {
+										fs::rename(&p, new_name).expect("rename failed");
+									} else {
+										ffmpeg::rename(p.to_str().unwrap(), new_name.as_str()).expect("rename failed");
+									}
+								}
 							}
 						}
 					}
@@ -61,6 +99,7 @@ async fn file_renamer() -> anyhow::Result<()> {
 		}
 	}
 }
+
 fn segment_timestamp(start: DateTime<Utc>, segment_no: u32) -> String {
 	let total_addition = Duration::milliseconds((segment_no as f64 * 3.2 * 1000.0) as i64);
 	let now = start + total_addition;

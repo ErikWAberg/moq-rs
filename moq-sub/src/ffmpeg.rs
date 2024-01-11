@@ -1,12 +1,31 @@
-use std::any::Any;
-use std::ops::Deref;
-use tokio::process::{Child, Command};
-use anyhow::{Context, Error};
 use std::process::Stdio;
-use std::time::{SystemTime, UNIX_EPOCH};
-use crate::catalog::{AudioTrack, Track, TrackKind, VideoTrack};
-use chrono::Utc;
 
+use anyhow::{Context, Error};
+use log::info;
+use tokio::process::{Child, Command};
+
+use crate::catalog::Track;
+
+pub fn rename(src: &str, dst: &str) -> Result<Child, Error> {
+	let mut args = [
+		"-y", "-hide_banner",
+		"-i", src,
+		"-video_track_timescale", "90000",
+		"-c", "copy",
+		dst
+	].map(|s| s.to_string()).to_vec();
+	//info!("Executing ffmpeg {}:\n\n{}\n", "rename", args.join(" "));
+
+	let ffmpeg = Command::new("ffmpeg")
+		.args(&args)
+		.stdin(Stdio::piped())
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
+		.spawn()
+		.context("failed to spawn ffmpeg process")?;
+
+	Ok(ffmpeg)
+}
 pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 	let args = args(track);
 
@@ -35,7 +54,7 @@ fn args(track: &dyn Track) -> Vec<String> {
 		//"-use_editlist", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
-		//"-reset_timestamps", "1"
+		"-reset_timestamps", "1"
 	].map(|s| s.to_string()).to_vec();
 
 
@@ -52,11 +71,12 @@ fn args(track: &dyn Track) -> Vec<String> {
 mod tests {
 	use TrackKind::Audio;
 	use TrackKind::Video;
+
 	use crate::*;
 	use crate::catalog::{AudioTrack, VideoTrack};
-    use crate::ffmpeg::args;
+	use crate::ffmpeg::args;
 
-    #[test]
+	#[test]
 	fn audio() {
 		let audio = AudioTrack {
 			kind: Audio,

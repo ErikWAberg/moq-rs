@@ -146,7 +146,7 @@ impl Track for VideoTrack {
     }
     fn ffmpeg_args(&self, src: &str) -> Vec<String> {
         let mut args = Vec::new();
-
+//-forced-idr
         args.push("-i".to_string());
         args.push(src.to_string());
         args.push("-video_track_timescale".to_string());
