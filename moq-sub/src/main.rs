@@ -25,28 +25,29 @@ use crate::catalog::{Track, TrackKind};
 
 
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
+	let ffmpeg = ffmpeg::spawn(track.deref())?;
+	let mut ffmpeg_stdin = ffmpeg.stdin.context("failed to get ffmpeg stdin").unwrap();
+
 	let mut init_track_subscriber = subscriber
 		.get_track(track.init_track().as_str())
 		.context("failed to get init track")?;
 
 	let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
-	File::create(format!("dump/{}-init.mp4", track.kind().as_str())).await.context("failed to create init file")?
-		.write_all(&init_track_data).await.context("failed to write to file")?;
-	let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file")?;
-	continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
 
+	let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file")?;
+	ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin")?;
+	continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
 
 	let mut data_track_subscriber = subscriber
 		.get_track(track.data_track().as_str())
 		.context("failed to get data track")?;
-	for i in 0..10 {
-		let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
-		File::create(format!("dump/{}-{i}.mp4", track.kind().as_str())).await.context("failed to create init file")?
-			.write_all(&init_track_data).await.context("failed to write to file")?;
-		continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
-	}
 
-	Ok(())
+	loop {
+		let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
+		ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin")?;
+		continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
+		// ffmpeg produce 3.2s segments
+	}
 }
 
 async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
@@ -69,6 +70,7 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 	}
 	Ok(())
 }
+//TODO - produce audio & video in format: 3913949337.600-a0.mp4 3913949337.600-v0.mp4
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {

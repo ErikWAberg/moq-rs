@@ -3,7 +3,9 @@ use std::ops::Deref;
 use tokio::process::{Child, Command};
 use anyhow::{Context, Error};
 use std::process::Stdio;
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::catalog::{AudioTrack, Track, TrackKind, VideoTrack};
+use chrono::Utc;
 
 pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 	let args = args(track);
@@ -23,34 +25,33 @@ pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 }
 
 fn args(track: &dyn Track) -> Vec<String> {
+
 	let mut args = [
 		"-y", "-hide_banner",
-		"-i", "pipe:0",
-		format!("{}-pipe.mp4", track.kind().as_str()).as_str()
-	].map(|s| s.to_string()).to_vec();
-/*
-	let mut args = [
-	//	"-i", "pipe:0",
-		"-y", "-hide_banner",
-		"-analyzeduration", "100000",
 	].map(|s| s.to_string()).to_vec();
 
 	let mut post_args = [
 		"-muxdelay", "0",
-		"-hls_segment_type", "mpegts",
-		"-hls_time", "3.2",
-		"-hls_flags", "delete_segments",
+		"-f", "segment",
+		"-segment_time", "3.2",
+		"-reset_timestamps", "1"
 	].map(|s| s.to_string()).to_vec();
 
 
 	args.append(&mut track.ffmpeg_args("pipe:0"));
 	args.append(&mut post_args);
-	args.push("-hls_segment_filename".to_string());
-	args.push(format!("{}-%03d.ts", track.kind().as_str()));
-	args.push(format!("{}.m3u8", track.kind().as_str()));*/
+	//args.push("-hls_segment_filename".to_string());
+	args.push(format!("%d-{}0.mp4", track.kind().as_short_str()));
+	//args.push(format!("{}.m3u8", track.kind().as_str()));
 	args
 }
 
+fn current_time_seconds_milliseconds() -> String {
+	let now = Utc::now();
+	let seconds = now.timestamp();
+	let milliseconds = now.timestamp_subsec_millis();
+	format!("{}.{:03}", seconds, milliseconds)
+}
 
 #[cfg(test)]
 mod tests {

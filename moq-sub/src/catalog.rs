@@ -111,37 +111,16 @@ impl Track for AudioTrack {
     }
     fn ffmpeg_args(&self, src: &str) -> Vec<String> {
         let mut args = Vec::new();
-        //-y -hide_banner
-        // -f s24be -ar 48000 -ac 2 -i pipe:0 -c:a libfdk_aac -b:a 192k -muxdelay 0
-        // -var_stream_map a:0,name:a0 -hls_segment_type mpegts -hls_time 3.2 -hls_flags delete_segments -hls_segment_filename %v-%d.ts -master_pl_name master-audio2ch.m3u8 variant-audio-%v.m3u8
-        //args.push("-map".to_string());
-        //args.push("0:a".to_string());
-        args.push("-f".to_string());
-        args.push("mp4".to_string());
-        args.push("-vn".to_string());
-
-        args.push("-acodec".to_string());
-        //args.push(self.codec.to_lowercase().to_string());
-        args.push("libopus".to_string());
-        //args.push("-ar".to_string());
-        //args.push(self.sample_rate.to_string());
-        //args.push("-ac".to_string());
-        //args.push(self.channel_count.to_string());
-
         args.push("-i".to_string());
         args.push(src.to_string());
 
         args.push("-c:a".to_string());
-        //args.push("libfdk_aac".to_string());
-        //args.push("aac".to_string());
-        args.push("copy".to_string());
+        args.push("aac".to_string());
 
         args.push("-var_stream_map".to_string());
         args.push("a:0,name:a0".to_string());
         args.push("-b:a".to_string());
         args.push("192k".to_string());
-        //-b:a bitrate
-        //Make sure you compiled ffmpeg with --enable-libopus
         args
     }
 }
@@ -168,35 +147,21 @@ impl Track for VideoTrack {
     fn ffmpeg_args(&self, src: &str) -> Vec<String> {
         let mut args = Vec::new();
 
-        args.push("-f".to_string());
-        args.push("mp4".to_string());
-        args.push("-r".to_string());
-        args.push(self.frame_rate.to_string());
-        //args.push("-s:v".to_string());
-        //args.push(format!("{}x{}", self.width, self.height));
         args.push("-i".to_string());
         args.push(src.to_string());
 
         args.push("-s:v".to_string());
-        args.push(format!("{}x{}", self.width, self.height));
+        args.push(format!("{}x{}", 1280, 720));
         args.push("-r".to_string());
         args.push("50".to_string());
         args.push("-c:v".to_string());
-        //args.push("libx264".to_string());
-        args.push("copy".to_string());
-
-
-        /*let gop = match self.frame_rate {
-            30 => "96",
-            50 => "160",
-            _ => panic!("invalid fps")
-        };*/
+        args.push("libx264".to_string());
         args.push("-g".to_string());
         args.push("160".to_string());
         args.push("-var_stream_map".to_string());
         args.push("v:0,name:v0".to_string());
         args.push("-b:v".to_string());
-        args.push("6.5M".to_string());
+        args.push("4.5M".to_string());
         //args.push("-profile:v".to_string()); args.push("main".to_string());
         args.push("-color_primaries".to_string());
         args.push("1".to_string());
@@ -211,9 +176,9 @@ impl Track for VideoTrack {
         args.push("-sc_threshold".to_string());
         args.push("0".to_string());
         args.push("-maxrate".to_string());
-        args.push("6.5M".to_string());
+        args.push("4.5M".to_string());
         args.push("-bufsize".to_string());
-        args.push("6.5M".to_string());
+        args.push("4.5M".to_string());
         args.push("-level".to_string());
         args.push("4.1".to_string());
         args
