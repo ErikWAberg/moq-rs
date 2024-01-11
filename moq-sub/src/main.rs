@@ -1,14 +1,24 @@
 use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc::channel;
+
 use anyhow::Context;
+use chrono::{DateTime, Duration, Utc};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use tokio::sync::Mutex;
-use log::info;
+use log::{error, info};
+use notify::{Error, Event, EventKind, RecursiveMode, Watcher};
+use tokio::fs as TokioFs;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::task::JoinHandle;
+
+use cli::*;
+use moq_transport::cache::broadcast;
+use moq_transport::cache::broadcast::Subscriber;
+
+use crate::catalog::{Track, TrackKind};
 
 mod cli;
 mod dump;
@@ -16,13 +26,57 @@ mod catalog;
 mod init;
 mod ffmpeg;
 
-use cli::*;
+async fn file_renamer() -> anyhow::Result<()> {
 
-use moq_transport::cache::broadcast;
-use catalog::Catalog;
-use moq_transport::cache::broadcast::Subscriber;
-use crate::catalog::{Track, TrackKind};
+	let start = Utc::now();
 
+	let start = start - Duration::milliseconds(start.timestamp_millis() % 3200);
+
+	let (tx, rx) = channel::<Result<Event, Error>>();
+	let mut watcher = notify::recommended_watcher(tx).unwrap();
+	watcher.watch(Path::new("dump"), RecursiveMode::Recursive)?;
+
+	loop {
+		match rx.recv() {
+			Ok(Ok(event)) => match event.kind {
+				EventKind::Create(_) => {
+					for path in event.paths {
+						info!("renaming {:?}", path);
+
+						if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
+							let parts: Vec<&str> = file_name.split('-').collect();
+							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
+								let segment = parts[0];
+								info!("Segment s: {}", segment);
+								let segment_no = segment.parse::<u32>().unwrap();
+								info!("Segment: {}", segment);
+
+								let new_name = format!("out/{}-{}", current_time_seconds_milliseconds(start, segment_no), parts[1]); // ensure this function exists
+								info!("Renaming {} to {}", file_name, new_name);
+								fs::rename(&path, new_name).expect("rename failed");
+							}
+						}
+						
+					}
+				}
+				_ => {}
+			},
+			Ok(Err(e)) => println!("watch error: {:?}", e),
+			Err(e) => println!("receive error: {:?}", e),
+		}
+	}
+}
+fn current_time_seconds_milliseconds(start: DateTime<Utc>, segment_no: u32) -> String {
+	let total_addition = Duration::milliseconds((segment_no as f64 * 3.2 * 1000.0) as i64);
+	let now = start + total_addition;
+	let seconds = now.timestamp();
+	let milliseconds = now.timestamp_subsec_millis();
+	format!("{}.{:03}", seconds, milliseconds)
+}
+
+fn generate_new_name(p0: &PathBuf) -> String {
+	"".to_string()
+}
 
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
 	let ffmpeg = ffmpeg::spawn(track.deref())?;
@@ -141,10 +195,15 @@ async fn main() -> anyhow::Result<()> {
 
 	let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
 
+	let handle = tokio::spawn(async move {
+		file_renamer().await.expect("file_renamer error");
+	});
+
 
 	tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = run_track_subscribers(subscriber) => res.context("application error")?
+		res = run_track_subscribers(subscriber) => res.context("application error")?,
+		res = handle => res.context("renamer error")?,
 	}
 
 	Ok(())

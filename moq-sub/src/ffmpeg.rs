@@ -46,12 +46,6 @@ fn args(track: &dyn Track) -> Vec<String> {
 	args
 }
 
-fn current_time_seconds_milliseconds() -> String {
-	let now = Utc::now();
-	let seconds = now.timestamp();
-	let milliseconds = now.timestamp_subsec_millis();
-	format!("{}.{:03}", seconds, milliseconds)
-}
 
 #[cfg(test)]
 mod tests {

@@ -28,6 +28,8 @@ URL="${URL:-"https://$ADDR/$NAME"}"
 # Print out the watch URL
 #echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
+mkdir -p out
+rm out/* || true
 mkdir -p dump
 rm dump/* || true
 # Run ffmpeg and pipe the output to moq-pub
