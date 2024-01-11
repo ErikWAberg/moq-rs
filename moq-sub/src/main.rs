@@ -29,7 +29,6 @@ mod ffmpeg;
 async fn file_renamer() -> anyhow::Result<()> {
 
 	let start = Utc::now();
-
 	let start = start - Duration::milliseconds(start.timestamp_millis() % 3200);
 
 	let (tx, rx) = channel::<Result<Event, Error>>();
@@ -41,22 +40,16 @@ async fn file_renamer() -> anyhow::Result<()> {
 			Ok(Ok(event)) => match event.kind {
 				EventKind::Create(_) => {
 					for path in event.paths {
-						info!("renaming {:?}", path);
 
 						if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
 							let parts: Vec<&str> = file_name.split('-').collect();
 							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
 								let segment = parts[0];
-								info!("Segment s: {}", segment);
 								let segment_no = segment.parse::<u32>().unwrap();
-								info!("Segment: {}", segment);
-
-								let new_name = format!("out/{}-{}", current_time_seconds_milliseconds(start, segment_no), parts[1]); // ensure this function exists
-								info!("Renaming {} to {}", file_name, new_name);
+								let new_name = format!("out/{}-{}", segment_timestamp(start, segment_no), parts[1]); // ensure this function exists
 								fs::rename(&path, new_name).expect("rename failed");
 							}
 						}
-						
 					}
 				}
 				_ => {}
@@ -66,7 +59,7 @@ async fn file_renamer() -> anyhow::Result<()> {
 		}
 	}
 }
-fn current_time_seconds_milliseconds(start: DateTime<Utc>, segment_no: u32) -> String {
+fn segment_timestamp(start: DateTime<Utc>, segment_no: u32) -> String {
 	let total_addition = Duration::milliseconds((segment_no as f64 * 3.2 * 1000.0) as i64);
 	let now = start + total_addition;
 	let seconds = now.timestamp();
@@ -74,9 +67,6 @@ fn current_time_seconds_milliseconds(start: DateTime<Utc>, segment_no: u32) -> S
 	format!("{}.{:03}", seconds, milliseconds)
 }
 
-fn generate_new_name(p0: &PathBuf) -> String {
-	"".to_string()
-}
 
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
 	let ffmpeg = ffmpeg::spawn(track.deref())?;
@@ -124,7 +114,6 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 	}
 	Ok(())
 }
-//TODO - produce audio & video in format: 3913949337.600-a0.mp4 3913949337.600-v0.mp4
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
