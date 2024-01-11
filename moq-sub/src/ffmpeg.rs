@@ -32,9 +32,10 @@ fn args(track: &dyn Track) -> Vec<String> {
 
 	let mut post_args = [
 		"-muxdelay", "0",
+		//"-use_editlist", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
-		"-reset_timestamps", "1"
+		//"-reset_timestamps", "1"
 	].map(|s| s.to_string()).to_vec();
 
 

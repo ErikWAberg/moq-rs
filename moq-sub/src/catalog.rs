@@ -149,7 +149,8 @@ impl Track for VideoTrack {
 
         args.push("-i".to_string());
         args.push(src.to_string());
-
+        args.push("-video_track_timescale".to_string());
+        args.push("90000".to_string());
         args.push("-s:v".to_string());
         args.push(format!("{}x{}", 1280, 720));
         args.push("-r".to_string());
@@ -162,7 +163,7 @@ impl Track for VideoTrack {
         args.push("v:0,name:v0".to_string());
         args.push("-b:v".to_string());
         args.push("4.5M".to_string());
-        //args.push("-profile:v".to_string()); args.push("main".to_string());
+        args.push("-profile:v".to_string()); args.push("high".to_string());
         args.push("-color_primaries".to_string());
         args.push("1".to_string());
         args.push("-color_trc".to_string());
@@ -181,6 +182,7 @@ impl Track for VideoTrack {
         args.push("4.5M".to_string());
         args.push("-level".to_string());
         args.push("4.1".to_string());
+
         args
     }
 }

@@ -28,8 +28,10 @@ mod ffmpeg;
 
 async fn file_renamer() -> anyhow::Result<()> {
 
+	let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 	let start = Utc::now();
-	let start = start - Duration::milliseconds(start.timestamp_millis() % 3200);
+	let start = start - Duration::milliseconds(start.timestamp_millis() % 3200) + ntp_epoch_offset;
+
 
 	let (tx, rx) = channel::<Result<Event, Error>>();
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
