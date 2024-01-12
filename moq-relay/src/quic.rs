@@ -52,12 +52,16 @@ impl Quic {
 			log::info!("using moq-api: url={}", url);
 			moq_api::Client::new(url)
 		});
+		let vompc_api = config.vompc_url.map(|url| {
+			log::info!("using moq-api: url={}", url);
+			vompc_api::Client::new(url)
+		});
 
 		if let Some(ref node) = config.api_node {
 			log::info!("advertising origin: url={}", node);
 		}
 
-		let origin = Origin::new(api, config.api_node, quic.clone());
+		let origin = Origin::new(api, vompc_api, config.api_node, quic.clone());
 		let conns = JoinSet::new();
 
 		Ok(Self { quic, origin, conns })

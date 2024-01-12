@@ -41,6 +41,10 @@ pub struct Config {
 	#[arg(long)]
 	pub api: Option<Url>,
 
+	/// Optional: Use the moq-api via HTTP to store origin information.
+	#[arg(long)]
+	pub vompc_url: Option<Url>,
+
 	/// Our internal address which we advertise to other origins.
 	/// We use QUIC, so the certificate must be valid for this address.
 	/// This needs to be prefixed with https:// to use WebTransport.

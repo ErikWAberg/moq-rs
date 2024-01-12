@@ -75,7 +75,7 @@ async fn file_renamer() -> anyhow::Result<()> {
 							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
 								let segment_no = parts[0].parse::<u32>().unwrap();
 								let src_dir = path.parent().unwrap();
-								if segment_no > 3 {
+								if segment_no > 8 { // wait for 8 segments to be created
 									let seg_moved = segment_no - 3;
 									let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_moved), parts[1]).as_str()));
 									let src = src_dir.join(Path::new(format!("{}-{}", seg_moved, parts[1]).as_str()));
@@ -83,7 +83,8 @@ async fn file_renamer() -> anyhow::Result<()> {
 									if parts[1].ends_with("a0.mp4") {
 										fs::rename(&src, &dst).expect("rename failed");
 									} else {
-										ffmpeg::rename(&src, &dst).expect("rename failed");
+										//ffmpeg::rename(&src, &dst).expect("rename failed");
+										fs::rename(&src, &dst).expect("rename failed");
 									}
 								}
 							}

@@ -146,11 +146,20 @@ impl Track for VideoTrack {
     }
     fn ffmpeg_args(&self, src: &str) -> Vec<String> {
         let mut args = Vec::new();
-//-forced-idr
+        //args.push("-f".to_string());
+        //args.push("mp4".to_string());
+        //args.push("-r".to_string());
+        //args.push("30".to_string());
+        //args.push("-vcodec".to_string());
+        //args.push("h264".to_string());
+
         args.push("-i".to_string());
         args.push(src.to_string());
-        args.push("-video_track_timescale".to_string());
-        args.push("90000".to_string());
+
+        //args.push("-fflags".to_string());
+        //args.push("+genpts".to_string());
+        //args.push("-video_track_timescale".to_string()); // ignored by ffmpeg for some reason
+        //args.push("90k".to_string());
         args.push("-s:v".to_string());
         args.push(format!("{}x{}", 1280, 720));
         args.push("-r".to_string());
@@ -159,11 +168,18 @@ impl Track for VideoTrack {
         args.push("libx264".to_string());
         args.push("-g".to_string());
         args.push("160".to_string());
-        args.push("-var_stream_map".to_string());
-        args.push("v:0,name:v0".to_string());
+
         args.push("-b:v".to_string());
         args.push("4.5M".to_string());
-        args.push("-profile:v".to_string()); args.push("high".to_string());
+        args.push("-maxrate".to_string());
+        args.push("4.5M".to_string());
+        args.push("-bufsize".to_string());
+        args.push("4.5M".to_string());
+
+        args.push("-profile:v".to_string());
+        args.push("high".to_string());
+        args.push("-level".to_string());
+        args.push("4.1".to_string());
         args.push("-color_primaries".to_string());
         args.push("1".to_string());
         args.push("-color_trc".to_string());
@@ -176,12 +192,6 @@ impl Track for VideoTrack {
         args.push("23".to_string());
         args.push("-sc_threshold".to_string());
         args.push("0".to_string());
-        args.push("-maxrate".to_string());
-        args.push("4.5M".to_string());
-        args.push("-bufsize".to_string());
-        args.push("4.5M".to_string());
-        args.push("-level".to_string());
-        args.push("4.1".to_string());
 
         args
     }

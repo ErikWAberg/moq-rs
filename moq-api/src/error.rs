@@ -8,6 +8,9 @@ pub enum ApiError {
 	#[error("reqwest error: {0}")]
 	Request(#[from] reqwest::Error),
 
+	#[error("vompc error")]
+	RequestVompc(),
+
 	#[error("hyper error: {0}")]
 	Hyper(#[from] hyper::Error),
 
