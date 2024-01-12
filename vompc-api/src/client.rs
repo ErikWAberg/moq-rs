@@ -67,8 +67,8 @@ impl Client {
 
     pub async fn create(&mut self, channel: &str, title_svt_id: &str, duration: usize) -> Result<(), ApiError> {
         let create_req = self.create_req(channel, title_svt_id, duration);
-
-        let rsp = self.client.post(&serde_json::to_string(&create_req).unwrap())
+        let body = serde_json::to_string(&create_req).unwrap();
+        let rsp = self.client.post(self.url.as_str()).body(body)
             .send().await?;
         rsp.error_for_status()?;
         Ok(())
@@ -83,7 +83,7 @@ impl Client {
             program_id: DEFAULT_PROGRAM_ID,
             episode,
             start_delay_seconds: 0,
-            duration: 0,
+            duration,
             encrypted: false,
             sign_interpreted: false,
             audio_described: false
