@@ -9,6 +9,7 @@ use moq_transport::cache::{broadcast, CacheError};
 use url::Url;
 
 use tokio::time;
+use vompc_api::Client;
 
 use crate::RelayError;
 
@@ -44,6 +45,9 @@ impl Origin {
 		}
 	}
 
+	pub fn vompc(&self) -> Option<Client> {
+		self.vompc_api.clone()
+	}
 	/// Create a new broadcast with the given ID.
 	///
 	/// Publisher::run needs to be called to periodically refresh the origin cache.
@@ -75,8 +79,7 @@ impl Origin {
 		let mut publisher = Publisher {
 			broadcast: publisher,
 			subscriber,
-			api: None,
-			vompc_api: self.vompc_api.clone(),
+			api: None
 		};
 
 		// Insert the publisher into the database.
@@ -175,7 +178,6 @@ pub struct Publisher {
 	pub broadcast: broadcast::Publisher,
 
 	api: Option<(moq_api::Client, moq_api::Origin)>,
-	vompc_api: Option<vompc_api::Client>,
 
 	#[allow(dead_code)]
 	subscriber: Arc<Subscriber>,
@@ -186,24 +188,6 @@ impl Publisher {
 		// Every 5m tell the API we're still alive.
 		// TODO don't hard-code these values
 		let mut interval = time::interval(time::Duration::from_secs(60 * 5));
-
-		// give me first 10 characters of self.broadcast.id
-		let fake_id = self.broadcast.id.chars().take(10).collect::<String>();
-
-		if let Some(vompc) = self.vompc_api.as_mut() {
-			// todo error type
-			let res = vompc.create("ny_dörr", fake_id.as_str(), 30).await;
-			if let Err(err) = res {
-				log::warn!("failed to create episode: {}", err);
-				return Err(ApiError::RequestVompc());
-			}
-			let res = vompc.start_auto().await;
-			if let Err(err) = res {
-				log::warn!("failed to start episode: {}", err);
-				return Err(ApiError::RequestVompc());
-			}
-		}
-
 
 		loop {
 			if let Some((api, origin)) = self.api.as_mut() {
