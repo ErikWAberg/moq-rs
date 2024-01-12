@@ -31,6 +31,11 @@ if [ -n "${NODE-}" ]; then
 	ARGS="$ARGS --api-node $NODE"
 fi
 
+if [ -n "${VOMPC-}" ]; then
+  ARGS="$ARGS --vompc-url $VOMPC"
+fi
+
+
 echo "Publish URL: https://quic.video/publish/?server=localhost:${PORT}"
 
 # Run the relay and forward any arguments
