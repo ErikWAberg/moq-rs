@@ -28,10 +28,15 @@ URL="${URL:-"https://$ADDR/$NAME"}"
 # Print out the watch URL
 #echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
-mkdir -p out
-rm out/* || true
 mkdir -p dump
 rm dump/* || true
+
+mkdir -p out/en01
+rm out/* || true
+rm out/en01/* || true
+
+mkdir -p event-rec-out/
+rm out/en01/* || true
 # Run ffmpeg and pipe the output to moq-pub
 # TODO enable audio again once fixed.
 cargo run --bin moq-sub -- "$URL" "$@"

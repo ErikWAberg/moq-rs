@@ -1,20 +1,19 @@
+use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::{Context, Error};
-use log::info;
 use tokio::process::{Child, Command};
 
 use crate::catalog::Track;
 
-pub fn rename(src: &str, dst: &str) -> Result<Child, Error> {
-	let mut args = [
+pub fn rename(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
+	let  args = [
 		"-y", "-hide_banner",
-		"-i", src,
+		"-i", src.to_str().unwrap(),
 		"-video_track_timescale", "90000",
 		"-c", "copy",
-		dst
+		dst.to_str().unwrap()
 	].map(|s| s.to_string()).to_vec();
-	//info!("Executing ffmpeg {}:\n\n{}\n", "rename", args.join(" "));
 
 	let ffmpeg = Command::new("ffmpeg")
 		.args(&args)

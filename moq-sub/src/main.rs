@@ -63,6 +63,7 @@ async fn file_renamer() -> anyhow::Result<()> {
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
 	watcher.watch(Path::new("dump"), RecursiveMode::Recursive)?;
 
+	let target = PathBuf::from("out/en01");
 	loop {
 		match rx.recv() {
 			Ok(Ok(event)) => match event.kind {
@@ -72,20 +73,17 @@ async fn file_renamer() -> anyhow::Result<()> {
 						if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
 							let parts: Vec<&str> = file_name.split('-').collect();
 							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
-								let segment = parts[0];
-								let segment_no = segment.parse::<u32>().unwrap();
+								let segment_no = parts[0].parse::<u32>().unwrap();
+								let src_dir = path.parent().unwrap();
 								if segment_no > 3 {
 									let seg_moved = segment_no - 3;
-									let new_name = format!("out/{}-{}", segment_timestamp(start, seg_moved), parts[1]);
-									let older_file= format!("{}-{}", seg_moved, parts[1]);
-									let x = path.parent().unwrap().join(Path::new(older_file.as_str()));
-									let p = Path::new(x.as_path());
-									//fs::rename(&p, new_name).expect("rename failed");
+									let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_moved), parts[1]).as_str()));
+									let src = src_dir.join(Path::new(format!("{}-{}", seg_moved, parts[1]).as_str()));
 
 									if parts[1].ends_with("a0.mp4") {
-										fs::rename(&p, new_name).expect("rename failed");
+										fs::rename(&src, &dst).expect("rename failed");
 									} else {
-										ffmpeg::rename(p.to_str().unwrap(), new_name.as_str()).expect("rename failed");
+										ffmpeg::rename(&src, &dst).expect("rename failed");
 									}
 								}
 							}
@@ -101,11 +99,8 @@ async fn file_renamer() -> anyhow::Result<()> {
 }
 
 fn segment_timestamp(start: DateTime<Utc>, segment_no: u32) -> String {
-	let total_addition = Duration::milliseconds((segment_no as f64 * 3.2 * 1000.0) as i64);
-	let now = start + total_addition;
-	let seconds = now.timestamp();
-	let milliseconds = now.timestamp_subsec_millis();
-	format!("{}.{:03}", seconds, milliseconds)
+	let timestamp = start + Duration::milliseconds((segment_no * 3200) as i64);
+	format!("{}.{:03}", timestamp.timestamp(), timestamp.timestamp_subsec_millis())
 }
 
 
