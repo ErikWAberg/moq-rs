@@ -25,18 +25,19 @@ URL="${URL:-"https://$ADDR/$NAME"}"
 # Default to a source video
 #INPUT="${INPUT:-dev/source.mp4}"
 
+# eventually output to source dir of ER
+OUTPUT="${OUTPUT:-out/en01}"
+
 # Print out the watch URL
 #echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
 mkdir -p dump
 rm dump/* || true
 
-mkdir -p out/en01
-rm out/* || true
-rm out/en01/* || true
+mkdir -p "$OUTPUT"
+rm "$OUTPUT/*" || true
 
 mkdir -p event-rec-out/
-rm out/en01/* || true
-# Run ffmpeg and pipe the output to moq-pub
-# TODO enable audio again once fixed.
+
+
 cargo run --bin moq-sub -- "$URL" "$@"

@@ -28,6 +28,11 @@ pub struct Config {
 	/// The name of the track to dump.
 	#[arg(long, default_value = "1.m4s")]
 	pub track: String,
+
+	/// target output path
+	#[arg(long)]
+	pub output: path::PathBuf,
+
 }
 
 fn moq_url(s: &str) -> Result<Url, String> {

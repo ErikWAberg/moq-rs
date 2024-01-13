@@ -36,7 +36,7 @@ impl LiveScheduler {
             let payload : String = msg.get_payload()?;
             log::info!("channel '{}': {}", msg.get_channel_name(), payload);
             // channel 'event-starts': {"url":"http://localhost:4443/e7a2ff34-13d4-4c3d-af7e-5a662a622b57"}
-
+            // TODO --- disregard below: this is a backup solution in case the other one doesnt work
             // TODO move call of vompc here
             // TODO start moq-sub
             // TODO start event recorder

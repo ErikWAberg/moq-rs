@@ -58,6 +58,7 @@ impl Client {
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).send().await?;
         rsp.error_for_status()?;
+        println!("started vompc: {dst}");
         Ok(())
     }
 
@@ -67,6 +68,7 @@ impl Client {
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).send().await?;
         rsp.error_for_status()?;
+        println!("stopped vompc: {dst}");
         Ok(())
     }
 
@@ -76,10 +78,12 @@ impl Client {
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).send().await?;
         rsp.error_for_status()?;
+
+        println!("deleted vompc: {dst}");
         Ok(())
     }
 
-    pub async fn create(&mut self, channel: &str, title_svt_id: &str, duration: usize) -> Result<(), ApiError> {
+    pub async fn create(&mut self, channel: &str, title_svt_id: &str, duration: usize) -> Result<String, ApiError> {
         let create_req = self.create_req(channel.to_string(), title_svt_id, duration);
         let url = self.url.join("create2")?;
         let rsp = self.client.post(url)
@@ -88,9 +92,10 @@ impl Client {
             .await?
             .text()
             .await?;
-        println!("created vompc! {:?}", create_req);
+        let resource = format!("{DEFAULT_PROGRAM_ID}/{}", self.episodes_offset + self.episodes_created);
+        println!("created vompc: {:?}", create_req);
 
-        Ok(())
+        Ok(resource)
     }
 
     fn create_req(&mut self, channel: String, title_svt_id: &str, duration: usize) -> CreateRequest {

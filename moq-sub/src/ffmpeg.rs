@@ -25,10 +25,10 @@ pub fn rename(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 
 	Ok(ffmpeg)
 }
-pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
-	let args = args(track);
 
-	log::info!("Executing ffmpeg {}:\n\n{}\n", track.kind().as_str(), args.join(" "));
+pub fn spawn(args: Vec<String>) -> Result<Child, Error> {
+
+	log::info!("Executing ffmpeg:\n\n{}\n", args.join(" "));
 
 	let ffmpeg = Command::new("ffmpeg")
 		.current_dir("dump")
@@ -36,13 +36,14 @@ pub fn spawn(track: &dyn Track) -> Result<Child, Error> {
 		.stdin(Stdio::piped())
 		.stdout(Stdio::inherit())
 		.stderr(Stdio::inherit())
+		.kill_on_drop(true)
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
 
 	Ok(ffmpeg)
 }
 
-fn args(track: &dyn Track) -> Vec<String> {
+pub fn args(track: &dyn Track) -> Vec<String> {
 
 	let mut args = [
 		"-y", "-hide_banner",

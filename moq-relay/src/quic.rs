@@ -1,4 +1,5 @@
 use std::{sync::Arc, time};
+use std::path::PathBuf;
 
 use anyhow::Context;
 
@@ -14,6 +15,7 @@ pub struct Quic {
 
 	// The map of active broadcasts by path.
 	origin: Origin,
+	pub subscriber_output: Option<PathBuf>,
 }
 
 impl Quic {
@@ -64,7 +66,7 @@ impl Quic {
 		let origin = Origin::new(api, vompc_api, config.api_node, quic.clone());
 		let conns = JoinSet::new();
 
-		Ok(Self { quic, origin, conns })
+		Ok(Self { quic, origin, conns,  subscriber_output: config.subscriber_output})
 	}
 
 	pub async fn serve(mut self) -> anyhow::Result<()> {
@@ -74,7 +76,7 @@ impl Quic {
 			tokio::select! {
 				res = self.quic.accept() => {
 					let conn = res.context("failed to accept QUIC connection")?;
-					let mut session = Session::new(self.origin.clone());
+					let mut session = Session::new(self.origin.clone(), self.subscriber_output.clone());
 					self.conns.spawn(async move { session.run(conn).await });
 				},
 				res = self.conns.join_next(), if !self.conns.is_empty() => {

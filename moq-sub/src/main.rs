@@ -4,16 +4,17 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::channel;
 
 use anyhow::Context;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use log::{error, info};
 use notify::{Error, Event, EventKind, RecursiveMode, Watcher};
-use notify::WatcherKind::Inotify;
-use tokio::fs as TokioFs;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
+use tokio::process::Child;
+use tokio::sync::broadcast as TokioBroadcast;
+use tokio::task::JoinHandle;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -22,9 +23,8 @@ use moq_transport::cache::broadcast::Subscriber;
 use crate::catalog::{Track, TrackKind};
 
 mod cli;
-mod dump;
 mod catalog;
-mod init;
+mod subscriber;
 mod ffmpeg;
 /*
 async fn linux_file_renamer() -> anyhow::Result<()> {
@@ -52,18 +52,18 @@ async fn linux_file_renamer() -> anyhow::Result<()> {
 
 	Ok(())
 }*/
-async fn file_renamer() -> anyhow::Result<()> {
+async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
 	let ntp_epoch_offset = Duration::milliseconds(2208988800000);
-	let start = Utc::now();
-	let start = start - Duration::milliseconds(start.timestamp_millis() % 3200) + ntp_epoch_offset;
+	let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+	let start_sec = start_ms as f64 / 1000.0;
+	let start = ((start_sec * 10.0).round() * 100.0) as u64;
 
-
+	//TODO replace with inotify that can watch for file close..
 	let (tx, rx) = channel::<Result<Event, Error>>();
 	let mut watcher = notify::recommended_watcher(tx).unwrap();
 	watcher.watch(Path::new("dump"), RecursiveMode::Recursive)?;
 
-	let target = PathBuf::from("out/en01");
 	loop {
 		match rx.recv() {
 			Ok(Ok(event)) => match event.kind {
@@ -75,17 +75,20 @@ async fn file_renamer() -> anyhow::Result<()> {
 							if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
 								let segment_no = parts[0].parse::<u32>().unwrap();
 								let src_dir = path.parent().unwrap();
-								if segment_no > 8 { // wait for 8 segments to be created
-									let seg_moved = segment_no - 3;
-									let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_moved), parts[1]).as_str()));
-									let src = src_dir.join(Path::new(format!("{}-{}", seg_moved, parts[1]).as_str()));
+								if segment_no > 8 { // wait for 8 segments to be created (ffmpeg opens many files at once)
+									let seg_move = segment_no - 3; // copy the file created 3 segments ago
+
+									let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_move), parts[1]).as_str()));
+									let src = src_dir.join(Path::new(format!("{}-{}", seg_move, parts[1]).as_str()));
 
 									if parts[1].ends_with("a0.mp4") {
 										fs::rename(&src, &dst).expect("rename failed");
 									} else {
-										//ffmpeg::rename(&src, &dst).expect("rename failed");
-										fs::rename(&src, &dst).expect("rename failed");
+										ffmpeg::rename(&src, &dst).expect("rename failed");
+										//fs::rename(&src, &dst).expect("rename failed");
 									}
+								} else {
+									info!("awaiting condition segment_no: {segment_no} > 8");
 								}
 							}
 						}
@@ -99,36 +102,61 @@ async fn file_renamer() -> anyhow::Result<()> {
 	}
 }
 
-fn segment_timestamp(start: DateTime<Utc>, segment_no: u32) -> String {
-	let timestamp = start + Duration::milliseconds((segment_no * 3200) as i64);
-	format!("{}.{:03}", timestamp.timestamp(), timestamp.timestamp_subsec_millis())
+fn segment_timestamp(start: u64, segment_no: u32) -> String {
+	let timestamp = start + (segment_no as u64 * 3200);
+	let timestamp = timestamp as f64 / 1000.0;
+	format!("{:.3}", timestamp)
 }
 
 
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
-	let ffmpeg = ffmpeg::spawn(track.deref())?;
-	let mut ffmpeg_stdin = ffmpeg.stdin.context("failed to get ffmpeg stdin").unwrap();
+	let (tx, mut rx1) = TokioBroadcast::channel::<Vec<u8>>(155);
+	let mut rx2 = tx.subscribe();
 
-	let mut init_track_subscriber = subscriber
-		.get_track(track.init_track().as_str())
-		.context("failed to get init track")?;
+	let ffmpeg_args = ffmpeg::args(track.deref());
+	let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
+	let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
 
-	let init_track_data = init::get_segment(&mut init_track_subscriber).await?;
+	let ffmpeg_handle = tokio::spawn(async move {
+		while let Ok(data) = rx1.recv().await {
+			ffmpeg_stdin.write_all(&data).await.context("failed to write to ffmpeg stdin").unwrap();
+		}
+	});
 
-	let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file")?;
-	ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin")?;
-	continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
+	let filename = format!("dump/{}-continuous.mp4", track.kind().as_str());
+	let file_writer = tokio::spawn(async move {
+		let mut continuous_file = File::create(filename).await.context("failed to create init file").unwrap();
+		while let Ok(data) = rx2.recv().await {
+			continuous_file.write_all(&data).await.context("failed to write to continuous file").unwrap();
+		}
+	});
 
-	let mut data_track_subscriber = subscriber
-		.get_track(track.data_track().as_str())
-		.context("failed to get data track")?;
+	let task_handle = tokio::spawn(async move {
+		let mut init_track_subscriber = subscriber
+			.get_track(track.init_track().as_str())
+			.context("failed to get init track").unwrap();
 
-	loop {
-		let data_track_data = init::get_segment(&mut data_track_subscriber).await?;
-		ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin")?;
-		continuous_file.write_all(&data_track_data).await.context("failed to write to file")?;
-		// ffmpeg produce 3.2s segments
-	}
+		let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
+
+		tx.send(init_track_data).context("failed to send init track data").unwrap();
+
+		let mut data_track_subscriber = subscriber
+			.get_track(track.data_track().as_str())
+			.context("failed to get data track").unwrap();
+		loop {
+			let data_track_segment = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
+			tx.send(data_track_segment).context("failed to send data track segment").unwrap();
+		}
+	});
+
+	tokio::select! {
+        _ = ffmpeg.wait() => {},
+        _ = ffmpeg_handle => {},
+        _ = file_writer => {}
+        _ = task_handle => ffmpeg.kill().await.expect("kill failed"),
+    }
+	Ok(())
+
 }
 
 async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
@@ -136,7 +164,7 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 		.get_track(".catalog")
 		.context("failed to get catalog track")?;
 
-	let tracks = init::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
+	let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
 	let mut handles = FuturesUnordered::new();
 
 	for track in tracks {
@@ -220,9 +248,10 @@ async fn main() -> anyhow::Result<()> {
 		.context("failed to create MoQ Transport session")?;
 
 	let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
+	info!("stating subscriber for {stream_name}");
 
 	let handle = tokio::spawn(async move {
-		file_renamer().await.expect("file_renamer error");
+		file_renamer(&config.output).await.expect("file_renamer error");
 	});
 
 
@@ -231,6 +260,7 @@ async fn main() -> anyhow::Result<()> {
 		res = run_track_subscribers(subscriber) => res.context("application error")?,
 		res = handle => res.context("renamer error")?,
 	}
+	error!("exiting");
 
 	Ok(())
 }

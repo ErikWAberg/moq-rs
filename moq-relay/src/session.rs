@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+use std::process::Stdio;
 use anyhow::Context;
-use log::error;
+use log::{error, info};
+use tokio::process::Command;
 use moq_api::ApiError;
 
 use moq_transport::{session::Request, setup::Role, MoqError};
@@ -9,11 +12,12 @@ use crate::Origin;
 #[derive(Clone)]
 pub struct Session {
 	origin: Origin,
+	subscriber_output: Option<PathBuf>
 }
 
 impl Session {
-	pub fn new(origin: Origin) -> Self {
-		Self { origin }
+	pub fn new(origin: Origin, subscriber_output: Option<PathBuf>) -> Self {
+		Self { origin, subscriber_output}
 	}
 
 	pub async fn run(&mut self, conn: quinn::Connecting) -> anyhow::Result<()> {
@@ -89,10 +93,52 @@ impl Session {
 
 		let session = request.subscriber(origin.broadcast.clone()).await?;
 
+		//if let Some(output) = self.subscriber_output.clone() {
+
+		//}
+		let output = self.subscriber_output.clone().unwrap_or(PathBuf::from("out/en02"));
+
+
+
+
+
+		let path = path.to_string();
+		let handle = tokio::spawn(async move {
+			let args = [
+				"--output", output.to_str().unwrap(),
+			].map(|s| s.to_string()).to_vec();
+			let child = Command::new("dev/sub")
+				.env("NAME", path)
+				.env("RUST_LOG", "INFO")
+				.args(&args)
+				.stdout(Stdio::inherit())
+				.stderr(Stdio::inherit())
+				//.stdout(Stdio::piped())
+				//.stderr(Stdio::piped())
+				.kill_on_drop(true)
+				.spawn()
+				.context("failed to spawn subscriber process").unwrap();
+			info!("created subscriber");
+
+			child.wait_with_output().await
+		});
+
 		tokio::select! {
 			_ = session.run() => origin.close().await?,
 			_ = origin.run() => (), // TODO send error to session
-		};
+			output = handle => {
+				let output = output.unwrap();
+				if let Ok(output) = output {
+					info!("subscriber exited with: {}", output.status);
+					info!("subscriber stdout: {}", String::from_utf8_lossy(&output.stdout));
+					info!("subscriber stderr: {}", String::from_utf8_lossy(&output.stderr));
+				} else {
+					error!("failed to wait for subscriber: {}", output.unwrap_err());
+				}
+			}
+		}
+		error!("exiting publisher loop");
+
 
 		Ok(())
 	}
@@ -104,17 +150,23 @@ impl Session {
 
 		let session = request.publisher(subscriber.broadcast.clone()).await?;
 
-		// should we do vompc in separate thread maybe
-		// should we straight up create an event recorder here?
-		let fake_id = path.chars().take(10).collect::<String>();
+		//TODO  should we do vompc in separate thread maybe
+
 		let mut vompc = self.origin.vompc();
 		if let Some(vompc) = vompc.as_mut() {
-			// todo error type
+			let fake_id = path.chars().take(10).collect::<String>();
+			info!("creating episode: {}", fake_id);
+
+			//TODO duration!
 			let res = vompc.create("ny_dörr", fake_id.as_str(), 30).await;
-			if let Err(err) = res {
-				error!("failed to create episode: {}", err);
-				return Ok(()) // not OK but idk how to return err
+			match res {
+				Ok(resource) => {info!("created resource: {resource}");}
+				Err(error) => {
+					error!("failed to create episode: {:?}", error);
+					return Ok(()) // not OK but idk how to return err
+				}
 			}
+
 			let res = vompc.start_auto().await;
 			if let Err(err) = res {
 				error!("failed to start episode: {}", err);
@@ -140,6 +192,7 @@ impl Session {
 				return Ok(()) // not OK but idk how to return err
 			}
 		}
+
 
 		Ok(())
 	}

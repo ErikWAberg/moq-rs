@@ -41,7 +41,12 @@ pub struct Config {
 	#[arg(long)]
 	pub api: Option<Url>,
 
-	/// Optional: Use the moq-api via HTTP to store origin information.
+	/// target output path passed to subscriber
+	/// if not set, a subscriber will not be started automatically
+	#[arg(long)]
+	pub subscriber_output: Option<path::PathBuf>,
+
+
 	#[arg(long)]
 	pub vompc_url: Option<Url>,
 
