@@ -53,7 +53,7 @@ impl Quic {
 			moq_api::Client::new(url)
 		});
 		let vompc_api = config.vompc_url.map(|url| {
-			log::info!("using moq-api: url={}", url);
+			log::info!("using wompc-api: url={}", url);
 			vompc_api::Client::new(url)
 		});
 

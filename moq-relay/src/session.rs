@@ -103,7 +103,9 @@ impl Session {
 		let subscriber = self.origin.subscribe(path);
 
 		let session = request.publisher(subscriber.broadcast.clone()).await?;
-		// give me first 10 characters of self.broadcast.id
+
+		// should we do vompc in separate thread maybe
+		// should we straight up create an event recorder here?
 		let fake_id = path.chars().take(10).collect::<String>();
 		let mut vompc = self.origin.vompc();
 		if let Some(vompc) = vompc.as_mut() {
@@ -115,14 +117,29 @@ impl Session {
 			}
 			let res = vompc.start_auto().await;
 			if let Err(err) = res {
-				log::warn!("failed to start episode: {}", err);
+				error!("failed to start episode: {}", err);
 				return Ok(()) // not OK but idk how to return err
 			}
 		}
+
+
 		session.run().await?;
 
 		// Make sure this doesn't get dropped too early
 		drop(subscriber);
+
+		if let Some(vompc) = vompc.as_mut() {
+			let res = vompc.stop_auto().await;
+			if let Err(err) = res {
+				error!("failed to stop episode: {}", err);
+				return Ok(()) // not OK but idk how to return err
+			}
+			let res = vompc.delete_auto().await;
+			if let Err(err) = res {
+				error!("failed to delete episode: {}", err);
+				return Ok(()) // not OK but idk how to return err
+			}
+		}
 
 		Ok(())
 	}

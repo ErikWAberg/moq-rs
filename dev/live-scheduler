@@ -26,21 +26,13 @@ REDIS_PORT=${REDIS_PORT:-6400} # The default is 6379, but we'll use 6400 to avoi
 
 # Cleanup function to stop Redis when script exits
 cleanup() {
-    $RUNTIME rm -f moq-redis || true
+    echo finito || true
 }
 
 # Stop the redis instance if it's still running
 cleanup
 
-# Run a Redis instance
-REDIS_CONTAINER=$($RUNTIME run --rm --name moq-redis -d -p "$REDIS_PORT:6379" redis:latest)
-
-#cargo run --bin moq-live-scheduler -- --listen "$LISTEN" --redis "redis://localhost:$REDIS_PORT" "$@"
 # Cleanup function to stop Redis when script exits
 trap cleanup EXIT
-
-# Default to a sqlite database in memory
-DATABASE="${DATABASE-sqlite::memory:}"
-
-# Run the relay and forward any arguments
-cargo run --bin moq-api -- --listen "$LISTEN" --redis "redis://localhost:$REDIS_PORT" "$@"
+#--listen "$LISTEN"
+cargo run --bin moq-live-scheduler -- --redis "redis://localhost:$REDIS_PORT" "$@"

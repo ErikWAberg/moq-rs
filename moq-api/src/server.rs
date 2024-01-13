@@ -41,6 +41,9 @@ impl Server {
 
 		// Create the redis client.
 		let redis = redis::Client::open(self.config.redis)?;
+		//let mut con = redis.get_connection()?;
+		//let mut pubsub = con.as_pubsub();
+
 		let redis = redis
 			.get_tokio_connection_manager() // TODO get_tokio_connection_manager_with_backoff?
 			.await?;
@@ -92,7 +95,7 @@ async fn set_origin(
 
 	let res: Option<String> = redis::cmd("SET")
 		.arg(key)
-		.arg(payload)
+		.arg(payload.clone())
 		.arg("NX")
 		.arg("EX")
 		.arg(600) // Set the key to expire in 10 minutes; the origin needs to keep refreshing it.
@@ -102,6 +105,8 @@ async fn set_origin(
 	if res.is_none() {
 		return Err(AppError::Duplicate);
 	}
+
+	redis.publish("event-starts", payload).await?;
 
 	Ok(())
 }
