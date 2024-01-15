@@ -47,7 +47,7 @@ impl Client {
     pub async fn start(&mut self, episode_version_id: &str) -> Result<(), ApiError> {
         let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
         let url = self.url.join(dst.as_str())?;
-        let rsp = self.client.get(url).send().await?;
+        let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
         Ok(())
     }
@@ -56,7 +56,7 @@ impl Client {
         let episode_version_id = self.episodes_offset + self.episodes_created;
         let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
         let url = self.url.join(dst.as_str())?;
-        let rsp = self.client.get(url).send().await?;
+        let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
         println!("started vompc: {dst}");
         Ok(())
@@ -66,7 +66,7 @@ impl Client {
         let episode_version_id = self.episodes_offset + self.episodes_created;
         let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/stop");
         let url = self.url.join(dst.as_str())?;
-        let rsp = self.client.get(url).send().await?;
+        let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
         println!("stopped vompc: {dst}");
         Ok(())
@@ -76,7 +76,7 @@ impl Client {
         let episode_version_id = self.episodes_offset + self.episodes_created;
         let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/delete");
         let url = self.url.join(dst.as_str())?;
-        let rsp = self.client.get(url).send().await?;
+        let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
 
         println!("deleted vompc: {dst}");
