@@ -99,6 +99,7 @@ impl Session {
 				let url = format!("https://localhost/{path}");
 				let args = [
 					"--output", output.to_str().unwrap(),
+					"--tls-disable-verify",
 					url.as_str(),
 				].map(|s| s.to_string()).to_vec();
 				info!("starting subscriber: {:?}", args.join(" "));
