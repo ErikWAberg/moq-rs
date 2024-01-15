@@ -57,22 +57,17 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                 if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
-                    if segment_no > 8 { // wait for 8 segments to be created (ffmpeg opens many files at once)
-                        let seg_move = segment_no - 1; // copy the file created 3 segments ago
+                    let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
+                    let src = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
 
-                        let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_move), parts[1]).as_str()));
-                        let src = src_dir.join(Path::new(format!("{}-{}", seg_move, parts[1]).as_str()));
-
-                        fs::create_dir_all(target)?;
-                        if parts[1].ends_with("a0.mp4") {
-                            fs::copy(&src, &dst).expect("copy audio failed");
-                            fs::remove_file(&src).expect("remove failed");
-                        } else {
-                            child = Some(ffmpeg::rename(&src, &dst).expect("rename via ffmpeg failed"));
-                        }
+                    fs::create_dir_all(target)?;
+                    if parts[1].ends_with("a0.mp4") {
+                        fs::copy(&src, &dst).expect("copy audio failed");
+                        fs::remove_file(&src).expect("remove failed");
                     } else {
-                        info!("awaiting condition segment_no: {segment_no} > 8");
+                        child = Some(ffmpeg::something_else(&src, &dst).expect("rename via ffmpeg failed"));
                     }
+
                 }
             }
 

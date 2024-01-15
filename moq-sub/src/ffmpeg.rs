@@ -6,7 +6,7 @@ use tokio::process::{Child, Command};
 
 use crate::catalog::Track;
 
-pub fn rename(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
+pub fn something_else(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 	let  args = [
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
