@@ -26,10 +26,11 @@ mod ffmpeg;
 
 async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
-    let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-    let start_sec = start_ms as f64 / 1000.0;
-    let start = ((start_sec * 10.0).round() * 100.0) as u64;
 
+    let mut start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+    let mut start_sec = start_ms as f64 / 1000.0;
+    let mut start = ((start_sec * 10.0).round() * 100.0) as u64;
+    start_ms = 0;
 	let mut inotify = Inotify::init()
 		.expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
@@ -37,14 +38,21 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
 
+    let mut prev_video_ms = 0 as u64;
     loop {
         let mut child = None;
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
             .expect("Error while reading events");
+        let mut now_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
 
         for event in events {
             if let Some(file_name) = event.name {
+                if start_ms == 0 {
+                    start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+                    start_sec = start_ms as f64 / 1000.0;
+                    start = ((start_sec * 10.0).round() * 100.0) as u64;
+                }
                 let file_name = file_name.to_str().unwrap();
 
                 let parts: Vec<&str> = file_name.split('-').collect();
@@ -60,6 +68,11 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         fs::remove_file(&src).expect("remove failed");
                     } else {
                         child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
+                        if prev_video_ms != 0 {
+                            let diff = now_ms - prev_video_ms;
+                            info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
+                            prev_video_ms = now_ms;
+                        }
                     }
 
                 }
