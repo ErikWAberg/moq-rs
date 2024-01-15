@@ -173,7 +173,7 @@ impl Track for VideoTrack {
         args.push("4.5M".to_string());
 
         args.push("-profile:v".to_string());
-        args.push("high".to_string());
+        args.push("main".to_string());
         args.push("-level".to_string());
         args.push("4.1".to_string());
         args.push("-color_primaries".to_string());
