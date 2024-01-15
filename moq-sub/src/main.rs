@@ -11,6 +11,13 @@ use std::process::Command;
 use std::os::unix::io::FromRawFd;
 use nix::unistd::pipe;
 use std::os::fd::RawFd;
+use anyhow::Result;
+use std::io::{BufRead, BufReader};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::path::Path;
+
+
 
 mod cli;
 mod dump;
@@ -62,6 +69,73 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
     Ok(())
 }
 
+fn watch_file(file_path: String, file_type: &str, start_time: u64) -> io::Result<()> {
+    let mut last_contents = Vec::new();
+
+
+    loop {
+        let mut current_contents = Vec::new();
+        let suffix = match file_type {
+            "audio" => "a0",
+            "video" => "v0",
+            _ => "",
+        };
+
+
+        // Read the current contents of the file
+        match fs::File::open(&file_path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    let line = line?;
+                    current_contents.push(line);
+                }
+            },
+            Err(_) => {
+                println!("Waiting for file to be created: {}", &file_path);
+                // File does not exist or cannot be opened, continue to next iteration
+                thread::sleep(Duration::from_millis(100));
+                continue;
+            }
+        }
+
+        // Compare the current contents with the last contents
+        if current_contents != last_contents {
+            for line in &current_contents {
+                if !last_contents.contains(line) {
+                    println!("New line in {}: {}", &file_path, line);
+
+                    if let Some(segment_str) = line.split('_').nth(1) {
+                        if let Ok(segment_number) = segment_str[..3].parse::<usize>() {
+                            let timestamp = segment_number as f64 * 3.2;
+
+                            // Split timestamp into seconds and milliseconds
+                            let seconds = start_time + timestamp as u64;
+                            let milliseconds = (timestamp.fract() * 1000.0) as u32;
+
+                            // Format with left-padding
+                            let new_file_name = format!("{:10}.{:03}_{}.mp4", seconds, milliseconds, suffix);
+
+                            let original_file_path = Path::new("dump/").join(line);
+                            let new_file_path = Path::new("dump/").join(new_file_name);
+
+                            if let Err(e) = fs::rename(&original_file_path, &new_file_path) {
+                                eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+                            } else {
+                                println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+                            }
+                        }
+                    }
+                }
+            }
+            last_contents = current_contents;
+        }
+
+        thread::sleep(Duration::from_millis(100));
+    }
+}
+
+
 async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
     let mut catalog_track_subscriber = subscriber
         .get_track(".catalog")
@@ -83,28 +157,46 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
     let mut args = Vec::new();
 
     args.push("-y".to_string());
+    args.push("-loglevel".to_string());
+    args.push("error".to_string());
     args.push("-hide_banner".to_string());
     for (reader, _) in &pipes {
         args.push("-i".to_string());
-        let formatted_string = format!("pipe:{}", reader);
-        args.push(formatted_string);
+        args.push(format!("pipe:{}", reader));
     }
-    args.push("-f".to_string());
-    args.push("hls".to_string());
-    args.push("-hls_time".to_string());
-    args.push("3.2".to_string());
-    args.push("-hls_segment_filename".to_string());
-    args.push("%v-%d.ts".to_string());
-    args.push("-hls_flags".to_string());
-    args.push("delete_segments".to_string());
-    args.push("-master_pl_name".to_string());
-    args.push("master0.m3u8".to_string());
+    // Video segmenting
+    args.push("-map".to_string());
+    args.push("1:v".to_string());
+    args.push("-s".to_string());
+    args.push("1920x1080".to_string());
     args.push("-c:v".to_string());
-    args.push("copy".to_string()); // Copy video as is
-    args.push("-c:a".to_string());
-    args.push("aac".to_string()); // Convert audio to AAC
+    args.push("libx264".to_string());
+    args.push("-force_key_frames".to_string());
+    args.push("expr:gte(t,n_forced*1.92)".to_string());
+    args.push("-f".to_string());
+    args.push("segment".to_string());
+    args.push("-segment_time".to_string());
+    args.push("3.2".to_string());
+    args.push("-reset_timestamps".to_string());
+    args.push("1".to_string());
+    args.push("-segment_list".to_string());
+    args.push("video_segments.txt".to_string());
+    args.push("video_%03d.mp4".to_string());
 
-    args.push("variant-0-%v.m3u8".to_string());
+    // Audio segmenting
+    args.push("-map".to_string());
+    args.push("0:a".to_string());
+    args.push("-c:a".to_string());
+    args.push("aac".to_string());
+    args.push("-f".to_string());
+    args.push("segment".to_string());
+    args.push("-segment_time".to_string());
+    args.push("3.2".to_string());
+    args.push("-reset_timestamps".to_string());
+    args.push("1".to_string());
+    args.push("-segment_list".to_string());
+    args.push("audio_segments.txt".to_string());
+    args.push("audio_%03d.mp4".to_string());
 
     info!("ffmpeg args: {:?}", args);
 
@@ -113,6 +205,17 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
         .args(&args)
         .spawn()
         .context("failed to spawn FFmpeg process")?;
+
+    let start_time = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+
+    let audio_thread = thread::spawn(move || {
+        watch_file("dump/audio_segments.txt".to_string(), "audio", start_time).unwrap();
+    });
+
+    let video_thread = thread::spawn(move || {
+        watch_file("dump/video_segments.txt".to_string(), "video", start_time).unwrap();
+    });
+
 
     let mut i = 0;
     for track in tracks {
@@ -125,11 +228,16 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
         handles.push(handle);
         i = i + 1;
     }
+
+
     tokio::select! {
-		_ = handles.next(), if ! handles.is_empty() => {}
+		_ = handles.next(), if ! handles.is_empty() => {},
 	}
+
+
     Ok(())
 }
+
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
