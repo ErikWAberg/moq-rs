@@ -96,7 +96,7 @@ impl Session {
 		if let Some(output) = self.subscriber_output.clone() {
 			let path = path.to_string();
 			let handle = tokio::spawn(async move {
-				let url = format!("https://lior01.svt.se/{path}");
+				let url = format!("https://localhost/{path}");
 				let args = [
 					"--output", output.to_str().unwrap(),
 					url.as_str(),
