@@ -62,7 +62,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
     //TODO replace with inotify that can watch for file close..
     let (tx, rx) = channel::<Result<Event, Error>>();
     let mut watcher = notify::recommended_watcher(tx).unwrap();
-    watcher.watch(Path::new("dump"), RecursiveMode::Recursive)?;
+    watcher.watch(Path::new("/dump"), RecursiveMode::Recursive)?;
 
     loop {
         let mut child = None;
@@ -81,6 +81,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                                     let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_move), parts[1]).as_str()));
                                     let src = src_dir.join(Path::new(format!("{}-{}", seg_move, parts[1]).as_str()));
 
+                                    fs::create_dir_all(target)?;
                                     if parts[1].ends_with("a0.mp4") {
                                         fs::rename(&src, &dst).expect("rename failed");
                                     } else {
@@ -124,7 +125,7 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyh
 
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
 
-        let mut continuous_file = File::create(format!("dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
+        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 

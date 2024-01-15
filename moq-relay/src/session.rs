@@ -158,7 +158,7 @@ impl Session {
 			info!("creating episode: {}", fake_id);
 
 			//TODO duration!
-			let res = vompc.create("ny_dörr", fake_id.as_str(), 30).await;
+			let res = vompc.create("glas_till_glas", fake_id.as_str(), 30).await;
 			match res {
 				Ok(resource) => {info!("created resource: {resource}");}
 				Err(error) => {

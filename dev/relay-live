@@ -8,6 +8,6 @@ cd "$(dirname "$0")/.."
 export PORT="${PORT:-4443}"
 #export API="${API:-http://localhost:4442}" # TODO support HTTPS
 #export NODE="${NODE:-https://localhost:$PORT}"
-export VOMPC="${NODE:-https:////vompc-web.videodev.svt.se}"
+export VOMPC="${NODE:-https://vompc-web.videodev.svt.se}"
 
 ./dev/relay

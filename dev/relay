@@ -40,3 +40,5 @@ echo "Publish URL: https://quic.video/publish/?server=localhost:${PORT}"
 
 # Run the relay and forward any arguments
 cargo run --bin moq-relay -- --listen "$LISTEN" --tls-cert "$CERT" --tls-key "$KEY" --dev $ARGS -- "$@"
+
+#--tls-cert /certs/cert.pem --tls-key /certs/privkey.pem  --listen '[::]:443'

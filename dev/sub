@@ -31,8 +31,8 @@ OUTPUT="${OUTPUT:-out/en01}"
 # Print out the watch URL
 #echo "Watch URL: https://quic.video/watch/$NAME?server=$ADDR"
 
-mkdir -p dump
-rm dump/* || true
+mkdir -p /dump
+rm /dump/* || true
 
 mkdir -p "$OUTPUT"
 rm "$OUTPUT/*" || true
