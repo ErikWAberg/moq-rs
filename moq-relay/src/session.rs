@@ -93,52 +93,47 @@ impl Session {
 
 		let session = request.subscriber(origin.broadcast.clone()).await?;
 
-		//if let Some(output) = self.subscriber_output.clone() {
+		if let Some(output) = self.subscriber_output.clone() {
+			let path = path.to_string();
+			let handle = tokio::spawn(async move {
+				let url = format!("https://lior01.svt.se/{path}");
+				let args = [
+					"--output", output.to_str().unwrap(),
+					url.as_str(),
+				].map(|s| s.to_string()).to_vec();
+				info!("starting subscriber: {:?}", args.join(" "));
 
-		//}
-		let output = self.subscriber_output.clone().unwrap_or(PathBuf::from("out/en02"));
+				let child = Command::new("moq-sub")
+					.env("RUST_LOG", "INFO")
+					.args(&args)
+					.stdout(Stdio::inherit())
+					.stderr(Stdio::inherit())
+					//.stdout(Stdio::piped())
+					//.stderr(Stdio::piped())
+					.kill_on_drop(true)
+					.spawn()
+					.context("failed to spawn subscriber process").unwrap();
+				info!("created subscriber");
 
+				child.wait_with_output().await
+			});
 
-
-
-
-		let path = path.to_string();
-		let handle = tokio::spawn(async move {
-			let args = [
-				"--output", output.to_str().unwrap(),
-			].map(|s| s.to_string()).to_vec();
-			let child = Command::new("dev/sub")
-				.env("NAME", path)
-				.env("RUST_LOG", "INFO")
-				.args(&args)
-				.stdout(Stdio::inherit())
-				.stderr(Stdio::inherit())
-				//.stdout(Stdio::piped())
-				//.stderr(Stdio::piped())
-				.kill_on_drop(true)
-				.spawn()
-				.context("failed to spawn subscriber process").unwrap();
-			info!("created subscriber");
-
-			child.wait_with_output().await
-		});
-
-		tokio::select! {
-			_ = session.run() => origin.close().await?,
-			_ = origin.run() => (), // TODO send error to session
-			output = handle => {
-				let output = output.unwrap();
-				if let Ok(output) = output {
-					info!("subscriber exited with: {}", output.status);
-					info!("subscriber stdout: {}", String::from_utf8_lossy(&output.stdout));
-					info!("subscriber stderr: {}", String::from_utf8_lossy(&output.stderr));
-				} else {
-					error!("failed to wait for subscriber: {}", output.unwrap_err());
+			tokio::select! {
+				_ = session.run() => origin.close().await?,
+				_ = origin.run() => (), // TODO send error to session
+				output = handle => {
+					let output = output.unwrap();
+					if let Ok(output) = output {
+						info!("subscriber exited with: {}", output.status);
+						info!("subscriber stdout: {}", String::from_utf8_lossy(&output.stdout));
+						info!("subscriber stderr: {}", String::from_utf8_lossy(&output.stderr));
+					} else {
+						error!("failed to wait for subscriber: {}", output.unwrap_err());
+					}
 				}
 			}
+			error!("exiting publisher loop");
 		}
-		error!("exiting publisher loop");
-
 
 		Ok(())
 	}

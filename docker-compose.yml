@@ -13,4 +13,4 @@ services:
       - ./certs:/certs
       - ./dump:/dump:rw
       - /data/source:/output:rw
-    command: --tls-cert /certs/cert.pem --tls-key /certs/privkey.pem  --listen '[::]:443 --vompc-url https://vompc-web.videodev.svt.se --subscriber_output /output/glas_till_glas/noencoder'
+    command: --tls-cert /certs/cert.pem --tls-key /certs/privkey.pem  --listen '[::]:443' --vompc-url https://vompc-web.videodev.svt.se --subscriber-output /output/glas_till_glas/noencoder
