@@ -1,21 +1,17 @@
 use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::channel;
 
 use anyhow::Context;
 use chrono::{Duration, Utc};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
+use inotify::{Inotify, WatchMask};
 use log::{error, info};
-use notify::{Error, Event, EventKind, RecursiveMode, Watcher};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::process::Child;
 use tokio::select;
-use tokio::sync::broadcast as TokioBroadcast;
-use tokio::task::JoinHandle;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -27,78 +23,59 @@ mod cli;
 mod catalog;
 mod subscriber;
 mod ffmpeg;
-/*
-async fn linux_file_renamer() -> anyhow::Result<()> {
 
-	let mut inotify = Inotify::init()
-		.expect("Error while initializing inotify instance");
-
-// Watch for modify and close events.
-	inotify
-		.watches()
-		.add(
-			"/tmp/inotify-rs-test-file",
-			 WatchMask::CLOSE,
-		)
-		.expect("Failed to add file watch");
-
-// Read events that were added with `Watches::add` above.
-	let mut buffer = [0; 1024];
-	let events = inotify.read_events_blocking(&mut buffer)
-		.expect("Error while reading events");
-
-	for event in events {
-		// Handle event
-	}
-
-	Ok(())
-}*/
 async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
     let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
     let start_sec = start_ms as f64 / 1000.0;
     let start = ((start_sec * 10.0).round() * 100.0) as u64;
 
-    //TODO replace with inotify that can watch for file close..
-    let (tx, rx) = channel::<Result<Event, Error>>();
-    let mut watcher = notify::recommended_watcher(tx).unwrap();
-    watcher.watch(Path::new("/dump"), RecursiveMode::Recursive)?;
+	let mut inotify = Inotify::init()
+		.expect("Error while initializing inotify instance");
+    let src_dir = Path::new("/dump");
+
+	inotify
+		.watches()
+		.add(
+			src_dir,
+			 WatchMask::CLOSE_WRITE,
+		)
+		.expect("Failed to add file watch");
+
 
     loop {
         let mut child = None;
-        match rx.recv() {
-            Ok(Ok(event)) => match event.kind {
-                EventKind::Create(_) => {
-                    for path in event.paths {
-                        if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
-                            let parts: Vec<&str> = file_name.split('-').collect();
-                            if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
-                                let segment_no = parts[0].parse::<u32>().unwrap();
-                                let src_dir = path.parent().unwrap();
-                                if segment_no > 8 { // wait for 8 segments to be created (ffmpeg opens many files at once)
-                                    let seg_move = segment_no - 3; // copy the file created 3 segments ago
+        let mut buffer = [0; 1024];
+        let events = inotify.read_events_blocking(&mut buffer)
+            .expect("Error while reading events");
 
-                                    let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_move), parts[1]).as_str()));
-                                    let src = src_dir.join(Path::new(format!("{}-{}", seg_move, parts[1]).as_str()));
+        for event in events {
+            if let Some(file_name) = event.name {
+                let file_name = file_name.to_str().unwrap();
 
-                                    fs::create_dir_all(target)?;
-                                    if parts[1].ends_with("a0.mp4") {
-                                        fs::copy(&src, &dst).expect("copy audio failed");
-                                        fs::remove_file(&src).expect("remove failed");
-                                    } else {
-                                        child = Some(ffmpeg::rename(&src, &dst).expect("rename via ffmpeg failed"));
-                                    }
-                                } else {
-                                    info!("awaiting condition segment_no: {segment_no} > 8");
-                                }
-                            }
+                let parts: Vec<&str> = file_name.split('-').collect();
+                if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
+                    let segment_no = parts[0].parse::<u32>().unwrap();
+
+                    if segment_no > 8 { // wait for 8 segments to be created (ffmpeg opens many files at once)
+                        let seg_move = segment_no - 1; // copy the file created 3 segments ago
+
+                        let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, seg_move), parts[1]).as_str()));
+                        let src = src_dir.join(Path::new(format!("{}-{}", seg_move, parts[1]).as_str()));
+
+                        fs::create_dir_all(target)?;
+                        if parts[1].ends_with("a0.mp4") {
+                            fs::copy(&src, &dst).expect("copy audio failed");
+                            fs::remove_file(&src).expect("remove failed");
+                        } else {
+                            child = Some(ffmpeg::rename(&src, &dst).expect("rename via ffmpeg failed"));
                         }
+                    } else {
+                        info!("awaiting condition segment_no: {segment_no} > 8");
                     }
                 }
-                _ => {}
-            },
-            Ok(Err(e)) => println!("watch error: {:?}", e),
-            Err(e) => println!("receive error: {:?}", e),
+            }
+
         }
         if let Some(mut file_move) = child {
             file_move.wait().await.expect("rename failed"); // pray we dont miss any events?
