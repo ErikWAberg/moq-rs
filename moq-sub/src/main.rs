@@ -164,6 +164,9 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
         args.push("-i".to_string());
         args.push(format!("pipe:{}", reader));
     }
+    args.push("-movflags".to_string());
+    args.push("faststart".to_string());
+
     // Video segmenting
     args.push("-map".to_string());
     args.push("1:v".to_string());
