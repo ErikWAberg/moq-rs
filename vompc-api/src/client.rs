@@ -108,7 +108,7 @@ impl Client {
             title_svt_id: title_svt_id.to_string(),
             program_id: DEFAULT_PROGRAM_ID,
             episode,
-            start_delay_seconds: 0,
+            start_delay_seconds: 1,
             duration,
             encrypted: false,
             sign_interpreted: false,
