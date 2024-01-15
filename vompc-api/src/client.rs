@@ -1,4 +1,5 @@
 use std::fmt::format;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -37,7 +38,8 @@ pub struct Client {
 impl Client {
     pub fn new(url: Url) -> Self {
         let client = reqwest::Client::new();
-        Self { url, client, episodes_offset: DEFAULT_EPISODE_OFFSET, episodes_created: 0}
+        let mut rng = rand::thread_rng();
+        Self { url, client, episodes_offset: rng.gen_range(1..=900), episodes_created: 0}
     }
     pub fn new_with_offset(url: Url, episodes_offset: u32) -> Self {
         let client = reqwest::Client::new();
