@@ -64,12 +64,15 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
                     fs::create_dir_all(target)?;
                     if parts[1].ends_with("v0.mp4") {
-                        child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
+                        let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0").as_str()));
+                        if audio_src.exists() {
+                            child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
 
-                        let src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0").as_str()));
-                        let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0").as_str()));
-                        fs::copy(&src, &dst).expect("copy audio failed");
-                        fs::remove_file(&src).expect("remove failed");
+                            let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0").as_str()));
+                            fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
+                            fs::remove_file(&audio_src).expect("remove failed");
+                        }
+
 
                         if prev_video_ms != 0 {
                             let diff = now_ms - prev_video_ms;
