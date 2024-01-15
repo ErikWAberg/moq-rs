@@ -34,14 +34,8 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 		.expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
 
-	inotify
-		.watches()
-		.add(
-			src_dir,
-			 WatchMask::CLOSE_WRITE,
-		)
-		.expect("Failed to add file watch");
-
+	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
+        .expect("Failed to add file watch");
 
     loop {
         let mut child = None;
@@ -65,7 +59,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         fs::copy(&src, &dst).expect("copy audio failed");
                         fs::remove_file(&src).expect("remove failed");
                     } else {
-                        child = Some(ffmpeg::something_else(&src, &dst).expect("rename via ffmpeg failed"));
+                        child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
                     }
 
                 }

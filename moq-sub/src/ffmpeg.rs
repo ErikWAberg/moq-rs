@@ -6,7 +6,7 @@ use tokio::process::{Child, Command};
 
 use crate::catalog::Track;
 
-pub fn something_else(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
+pub fn timescale_fix(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 	let  args = [
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
@@ -53,6 +53,7 @@ pub fn args(track: &dyn Track) -> Vec<String> {
 		"-muxdelay", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
+		"-threads", "16",
 		//"-seg_duration", "3.2",
 		"-break_non_keyframes", "1",
 	].map(|s| s.to_string()).to_vec();
