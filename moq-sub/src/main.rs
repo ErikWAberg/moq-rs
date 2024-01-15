@@ -83,10 +83,10 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
                                     fs::create_dir_all(target)?;
                                     if parts[1].ends_with("a0.mp4") {
-                                        fs::rename(&src, &dst).expect("rename failed");
+                                        fs::copy(&src, &dst).expect("copy failed");
+                                        fs::remove_file(&src).expect("remove failed");
                                     } else {
-                                         child = Some(ffmpeg::rename(&src, &dst).expect("rename failed"));
-                                        //fs::rename(&src, &dst).expect("rename failed");
+                                        child = Some(ffmpeg::rename(&src, &dst).expect("rename failed"));
                                     }
                                 } else {
                                     info!("awaiting condition segment_no: {segment_no} > 8");
