@@ -70,9 +70,9 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
                         if prev_video_ms != 0 {
                             let diff = now_ms - prev_video_ms;
-                            info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
-                            prev_video_ms = now_ms;
+                            println!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
                         }
+                        prev_video_ms = now_ms;
                     }
 
                 }
