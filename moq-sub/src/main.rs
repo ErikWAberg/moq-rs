@@ -83,10 +83,10 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
                                     fs::create_dir_all(target)?;
                                     if parts[1].ends_with("a0.mp4") {
-                                        fs::copy(&src, &dst).expect("copy failed");
+                                        fs::copy(&src, &dst).expect("copy audio failed");
                                         fs::remove_file(&src).expect("remove failed");
                                     } else {
-                                        child = Some(ffmpeg::rename(&src, &dst).expect("rename failed"));
+                                        child = Some(ffmpeg::rename(&src, &dst).expect("rename via ffmpeg failed"));
                                     }
                                 } else {
                                     info!("awaiting condition segment_no: {segment_no} > 8");
@@ -246,7 +246,11 @@ async fn main() -> anyhow::Result<()> {
     info!("stating subscriber for {stream_name}");
 
     let handle = tokio::spawn(async move {
-        file_renamer(&config.output).await.expect("file_renamer error");
+        let res = file_renamer(&config.output).await;
+        match res {
+            Ok(_) => {},
+            Err(e) => error!("file_renamer exited with error: {}", e),
+        }
     });
 
 

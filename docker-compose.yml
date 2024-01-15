@@ -6,7 +6,7 @@ services:
     image: moq-rs
     entrypoint: ["moq-relay"]
     network_mode: host
-    user: 1000:1000
+    user: 10002:10002
     environment:
       RUST_LOG: info
     volumes:
