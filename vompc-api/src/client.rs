@@ -59,8 +59,7 @@ impl Client {
         let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
-        rsp.error_for_status()?;
-        println!("started vompc: {dst}");
+        println!("vompc start response {:?}", rsp);
         Ok(())
     }
 
