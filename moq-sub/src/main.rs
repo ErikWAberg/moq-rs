@@ -12,6 +12,7 @@ use log::{error, info};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::select;
+use tokio::fs as TokioFs;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -34,6 +35,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 	let mut inotify = Inotify::init()
 		.expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
+    let local_target = Path::new("/dump/encoder");
 
 	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
@@ -60,6 +62,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
                     let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
+                    let local_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
                     let src = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
                     let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
@@ -73,9 +76,12 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         }
 
                         children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
+                        children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
 
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
+                            let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
                             children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
                             //fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
                             //fs::remove_file(&audio_src).expect("remove audio failed");
@@ -163,6 +169,19 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 	}
     Ok(())
 }
+async fn remove_files(path: &str) -> anyhow::Result<()> {
+    if !Path::new(path).exists() {
+        println!("path does not exist {path}");
+        return Ok(());
+    }
+    let mut dir = TokioFs::read_dir(path).await?;
+    while let Some(entry) = dir.next_entry().await? {
+        if entry.file_type().await?.is_file() {
+            TokioFs::remove_file(entry.path()).await?;
+        }
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -233,6 +252,10 @@ async fn main() -> anyhow::Result<()> {
 
     let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
     info!("stating subscriber for {stream_name}");
+
+    println!("working dir: {:?}", std::env::current_dir().unwrap());
+    remove_files("dump/encoder").await?;
+    remove_files("dump").await?;
 
     let handle = tokio::spawn(async move {
         let res = file_renamer(&config.output).await;

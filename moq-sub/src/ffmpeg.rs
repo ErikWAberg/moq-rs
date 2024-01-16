@@ -11,6 +11,7 @@ pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Erro
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
 		"-c", "copy",
+		"-loglevel", "error",
 		//"-frag_duration", "3200000",
 		//"-movflags", "+dash,+faststart,+global_sidx",
 		//"-movflags", "+faststart,+global_sidx",
@@ -52,14 +53,13 @@ pub fn args(track: &dyn Track) -> Vec<String> {
 
 	let mut args = [
 		"-y", "-hide_banner",
+		"-loglevel", "error",
 	].map(|s| s.to_string()).to_vec();
 
 	let mut post_args = [
 		"-muxdelay", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
-
-
 		"-break_non_keyframes", "1",
 	].map(|s| s.to_string()).to_vec();
 
