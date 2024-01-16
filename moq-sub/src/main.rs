@@ -1,17 +1,25 @@
 use std::{fs, io, sync::Arc, time};
+use std::io::{BufRead, BufReader};
+use std::io::ErrorKind;
 use std::ops::Deref;
+use std::os::fd::RawFd;
+use std::os::unix::io::FromRawFd;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::thread;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
+use anyhow::Result;
 use chrono::{Duration, Utc};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
-use inotify::{Inotify, WatchMask};
 use log::{error, info};
+use nix::unistd::pipe;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::select;
+use std::time::Duration as StdDuration;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -24,74 +32,114 @@ mod catalog;
 mod subscriber;
 mod ffmpeg;
 
-async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
-    let ntp_epoch_offset = Duration::milliseconds(2208988800000);
+async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: RawFd) -> anyhow::Result<()> {
+    let mut init_track_subscriber = subscriber
+        .get_track(track.init_track().as_str())
+        .context("failed to get init track")?;
 
-    let mut start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-    let mut start_sec = start_ms as f64 / 1000.0;
-    let mut start = ((start_sec * 10.0).round() * 100.0) as u64;
-    start_ms = 0;
-	let mut inotify = Inotify::init()
-		.expect("Error while initializing inotify instance");
-    let src_dir = Path::new("/dump");
 
-	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
-        .expect("Failed to add file watch");
+    let mut continuous_file = unsafe { File::from_raw_fd(fd) };
 
-    let mut prev_video_ms = 0 as u64;
+    let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await?;
+    continuous_file.write_all(&init_track_data).await.context("failed to write to file")?;
+
+
+    let mut data_track_subscriber = subscriber
+        .get_track(track.data_track().as_str())
+        .context("failed to get data track")?;
     loop {
-        let mut children = Vec::new();
-        let mut buffer = [0; 1024];
-        let events = inotify.read_events_blocking(&mut buffer)
-            .expect("Error while reading events");
-        let now_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-
-        for event in events {
-            if let Some(file_name) = event.name {
-                if start_ms == 0 {
-                    start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-                    start_sec = start_ms as f64 / 1000.0;
-                    start = ((start_sec * 10.0).round() * 100.0) as u64;
-                }
-                let file_name = file_name.to_str().unwrap();
-
-                let parts: Vec<&str> = file_name.split('-').collect();
-                if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
-                    let segment_no = parts[0].parse::<u32>().unwrap();
-
-                    let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
-                    let src = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
-                    let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
-
-                    fs::create_dir_all(target)?;
-                    info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
-
-                    if parts[1].ends_with("v0.mp4") {
-                        if prev_video_ms != 0 {
-                            let diff = now_ms - prev_video_ms;
-                            info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
+        match subscriber::get_segment(&mut data_track_subscriber).await {
+            Ok(data_track_data) => {
+                match continuous_file.write_all(&data_track_data).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        if e.kind() != ErrorKind::BrokenPipe {
+                            return Err(anyhow::anyhow!(e).context("failed to write to file"));
                         }
-
-                        children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
-
-                        if audio_src.exists() {
-                            let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
-                            //fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
-                            //fs::remove_file(&audio_src).expect("remove audio failed");
-                        }
-
-                        prev_video_ms = now_ms;
+                        break;
                     }
                 }
             }
-        }
-
-        for child in children {
-            if let Some(mut child) = child {
-                child.wait().await.expect("rename failed");
+            Err(e) => {
+                return Err(e.context("failed to get segment"));
             }
         }
+    }
+
+    Ok(())
+}
+
+fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &PathBuf) -> io::Result<()> {
+    let mut last_contents = Vec::new();
+
+
+    loop {
+        let mut current_contents = Vec::new();
+        let suffix = match file_type {
+            "audio" => "a0",
+            "video" => "v0",
+            _ => "",
+        };
+
+
+        // Read the current contents of the file
+        match fs::File::open(&file_path) {
+            Ok(file) => {
+                let reader = BufReader::new(file);
+                for line in reader.lines() {
+                    let line = line?;
+                    current_contents.push(line);
+                }
+            },
+            Err(_) => {
+                println!("Waiting for file to be created: {}", &file_path);
+                // File does not exist or cannot be opened, continue to next iteration
+                thread::sleep(StdDuration::from_millis(100));
+                continue;
+            }
+        }
+
+        // Compare the current contents with the last contents
+        if current_contents != last_contents {
+            for line in &current_contents {
+                if !last_contents.contains(line) {
+                    println!("New line in {}: {}", &file_path, line);
+
+                    if let Some(segment_str) = line.split('_').nth(1) {
+                        if let Ok(segment_number) = segment_str[..3].parse::<u32>() {
+
+
+                            // Format with left-padding
+                            //let new_file_name = format!("{:10}.{:03}_{}.mp4", seconds, milliseconds, suffix);
+                            let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
+                            fs::create_dir_all("dump/encoder")?;
+                            let original_file_path = Path::new("dump/").join(line);
+                            let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
+
+                            if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+                                eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+                            } else {
+                                println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+                            }
+
+                            let new_file_path = output.join(new_file_name);
+
+                            if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+                                eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+                            } else {
+                                println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+                            }
+                            fs::remove_file(&original_file_path).expect("unable to delete file: {original_file_path:?}");
+
+
+                        }
+                    }
+                }
+            }
+            last_contents = current_contents;
+        }
+
+        thread::sleep(StdDuration::from_millis(100));
     }
 }
 
@@ -102,48 +150,7 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 }
 
 
-async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
-    let ffmpeg_args = ffmpeg::args(track.deref());
-    let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
-    let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
-
-    let handle = tokio::spawn(async move {
-        let mut init_track_subscriber = subscriber
-            .get_track(track.init_track().as_str())
-            .context("failed to get init track").unwrap();
-
-        let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
-
-        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
-        ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
-
-        let mut data_track_subscriber = subscriber
-            .get_track(track.data_track().as_str())
-            .context("failed to get data track").unwrap();
-
-        loop {
-            let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
-            ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-        }
-
-    });
-
-    //TODO how do we prevent ffmpeg from becoming a zombie when session is terminated
-    //TODO why has ffmpeg transcode process become slower (transcode speed x)
-    select! {
-        _ = ffmpeg.wait() => {},
-        _ = handle => {
-            error!("killing ffmpeg");
-            ffmpeg.kill().await?;
-        },
-    }
-    info!("done with track");
-    Ok(())
-}
-
-async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
+async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyhow::Result<()> {
     let mut catalog_track_subscriber = subscriber
         .get_track(".catalog")
         .context("failed to get catalog track")?;
@@ -151,16 +158,104 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
     let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
     let mut handles = FuturesUnordered::new();
 
+
+    // create as many pipes as there are tracks
+    let mut pipes = Vec::new();
+    for _ in 0..tracks.len() {
+        let (reader, writer) = pipe().context("failed to create pipe")?;
+        pipes.push((reader, writer));
+    }
+
+    // create as many args as there are pipes
+
+    let mut args = Vec::new();
+
+    args.push("-y".to_string());
+    args.push("-loglevel".to_string());
+    args.push("error".to_string());
+    args.push("-hide_banner".to_string());
+    for (reader, _) in &pipes {
+        args.push("-i".to_string());
+        args.push(format!("pipe:{}", reader));
+    }
+    args.push("-movflags".to_string());
+    args.push("faststart".to_string());
+
+    // Video segmenting
+    args.push("-map".to_string());
+    args.push("1:v".to_string());
+    args.push("-s".to_string());
+    args.push("1280x720".to_string());
+    args.push("-c:v".to_string());
+    args.push("libx264".to_string());
+    args.push("-force_key_frames".to_string());
+    args.push("expr:gte(t,n_forced*1.92)".to_string());
+    args.push("-f".to_string());
+    args.push("segment".to_string());
+    args.push("-segment_time".to_string());
+    args.push("3.2".to_string());
+    args.push("-reset_timestamps".to_string());
+    args.push("1".to_string());
+    args.push("-segment_list".to_string());
+    args.push("video_segments.txt".to_string());
+    args.push("video_%03d.mp4".to_string());
+
+    // Audio segmenting
+    args.push("-map".to_string());
+    args.push("0:a".to_string());
+    args.push("-c:a".to_string());
+    args.push("aac".to_string());
+    args.push("-f".to_string());
+    args.push("segment".to_string());
+    args.push("-segment_time".to_string());
+    args.push("3.2".to_string());
+    args.push("-reset_timestamps".to_string());
+    args.push("1".to_string());
+    args.push("-segment_list".to_string());
+    args.push("audio_segments.txt".to_string());
+    args.push("audio_%03d.mp4".to_string());
+
+    info!("ffmpeg args: {:?}", args);
+
+    let _ = Command::new("ffmpeg")
+        .current_dir("dump")
+        .args(&args)
+        .spawn()
+        .context("failed to spawn FFmpeg process")?;
+
+    let ntp_epoch_offset = Duration::milliseconds(2208988800000);
+    let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+    let start_sec = start_ms as f64 / 1000.0;
+    let start_time_tenthofsec_ms = ((start_sec * 10.0).round() * 100.0) as u64;
+    let d = output.clone();
+    let audio_thread = thread::spawn(move || {
+        watch_file("dump/audio_segments.txt".to_string(), "audio", start_time_tenthofsec_ms, &d).unwrap();
+    });
+
+    let d = output.clone();
+    let video_thread = thread::spawn(move || {
+        watch_file("dump/video_segments.txt".to_string(), "video", start_time_tenthofsec_ms, &d).unwrap();
+    });
+
+
+    let mut i = 0;
     for track in tracks {
         let subscriber = subscriber.clone();
+        let pipes = pipes.clone();
         let handle = tokio::spawn(async move {
-            track_subscriber(track, subscriber).await.unwrap();
+            let (_, writer) = pipes[i];
+            track_subscriber(track, subscriber, writer).await.unwrap();
         });
         handles.push(handle);
+        i = i + 1;
     }
+
+
     tokio::select! {
-		_ = handles.next(), if ! handles.is_empty() => {}
+		_ = handles.next(), if ! handles.is_empty() => {},
 	}
+
+
     Ok(())
 }
 
@@ -234,19 +329,9 @@ async fn main() -> anyhow::Result<()> {
     let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
     info!("stating subscriber for {stream_name}");
 
-    let handle = tokio::spawn(async move {
-        let res = file_renamer(&config.output).await;
-        match res {
-            Ok(_) => {},
-            Err(e) => error!("file_renamer exited with error: {}", e),
-        }
-    });
-
-
     tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = run_track_subscribers(subscriber) => res.context("application error")?,
-		res = handle => res.context("renamer error")?,
+		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?
 	}
     error!("exiting");
 
