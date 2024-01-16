@@ -66,7 +66,6 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
                     let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
-                    let local_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
                     let src = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
                     let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
@@ -132,7 +131,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
 
     info!("ffmpeg1 - args: {:?}", ffmpeg1_args.join(" "));
 
-    let target = format!("dump/%d-a0.mp4");
     let ffmpeg2_args = [
         "-y", "-hide_banner",
         "-ac", "2",
@@ -140,9 +138,10 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-f", "s16le",
         "-i", "pipe:0",
         "-f", "segment",
+        "-reset_timestamps", "1",
         "-segment_time", "3.2",
         //"-loglevel", "error",
-        target.as_str()
+        "dump/%d-a0.mp4"
     ].map(|s| s.to_string()).to_vec();
 
     let ffmpeg1_stdout: Stdio = ffmpeg1
