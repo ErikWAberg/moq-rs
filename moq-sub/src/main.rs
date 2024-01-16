@@ -118,9 +118,9 @@ fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Resul
 
                             // Format with left-padding
 
-                            rename_to_timestamped_filename(output, start_time, "v0", format!("video-{:03}.mp4", segment_number), segment_number);
+                            rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number);
 
-                            rename_to_timestamped_filename(output, start_time, "a0", format!("audio-{:03}.mp4", segment_number), segment_number);
+                            rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number);
 
 
                         }
