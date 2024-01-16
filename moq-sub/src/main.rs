@@ -40,11 +40,11 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
     let mut prev_video_ms = 0 as u64;
     loop {
-        let mut child = None;
+        let mut children = Vec::new();
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
             .expect("Error while reading events");
-        let mut now_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+        let now_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
 
         for event in events {
             if let Some(file_name) = event.name {
@@ -67,28 +67,28 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                     info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
 
                     if parts[1].ends_with("v0.mp4") {
-                        child = Some(ffmpeg::timescale_fix(&src, &dst).expect("rename via ffmpeg failed"));
-
-                        if audio_src.exists() {
-                            let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
-                            fs::remove_file(&audio_src).expect("remove failed");
-                        }
-
-
                         if prev_video_ms != 0 {
                             let diff = now_ms - prev_video_ms;
                             info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
                         }
+
+                        children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
+
+                        if audio_src.exists() {
+                            let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
+                        }
+
                         prev_video_ms = now_ms;
                     }
-
                 }
             }
-
         }
-        if let Some(mut file_move) = child {
-            file_move.wait().await.expect("rename failed"); // pray we dont miss any events?
+
+        for child in children {
+            if let Some(mut child) = child {
+                child.wait().await.expect("rename failed");
+            }
         }
     }
 }

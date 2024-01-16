@@ -6,20 +6,24 @@ use tokio::process::{Child, Command};
 
 use crate::catalog::Track;
 
-pub fn timescale_fix(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
-	let  args = [
+pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Error> {
+	let mut  args = [
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
-		"-video_track_timescale", "90000",
 		"-c", "copy",
+		"-frag_duration", "20000",
+		"-movflags", "+cmaf,+faststart,+global_sidx",
 		dst.to_str().unwrap()
 	].map(|s| s.to_string()).to_vec();
+	if video {
+		args.push("-video_track_timescale".to_string());
+	 	args.push("90000".to_string());
+	}
 
 	let ffmpeg = Command::new("ffmpeg")
 		.args(&args)
-		.stdin(Stdio::piped())
-		.stdout(Stdio::inherit())
-		.stderr(Stdio::inherit())
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
 
@@ -53,7 +57,8 @@ pub fn args(track: &dyn Track) -> Vec<String> {
 		"-muxdelay", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
-		//"-seg_duration", "3.2",
+
+
 		"-break_non_keyframes", "1",
 	].map(|s| s.to_string()).to_vec();
 

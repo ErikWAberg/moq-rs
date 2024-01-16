@@ -20,7 +20,8 @@ struct CreateRequest {
     duration: usize,
     encrypted: bool,
     sign_interpreted: bool,
-    audio_described: bool
+    audio_described: bool,
+    start: bool
 }
 
 const DEFAULT_PROGRAM_ID: u32 = 9123400;
@@ -60,7 +61,7 @@ impl Client {
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
-        println!("started vompc: {dst}");
+        println!("VOMPC -- started: {dst}");
         Ok(())
     }
 
@@ -70,7 +71,7 @@ impl Client {
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
-        println!("stopped vompc: {dst}");
+        println!("VOMPC -- stopped: {dst}");
         Ok(())
     }
 
@@ -81,7 +82,7 @@ impl Client {
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
 
-        println!("deleted vompc: {dst}");
+        println!("VOMPC -- deleted: {dst}");
         Ok(())
     }
 
@@ -95,7 +96,7 @@ impl Client {
             .text()
             .await?;
         let resource = format!("{DEFAULT_PROGRAM_ID}/{}", self.episodes_offset + self.episodes_created);
-        println!("created vompc: {:?}", create_req);
+        println!("VOMPC -- created: {rsp:?} - {create_req:?} - ");
 
         Ok(resource)
     }
@@ -112,7 +113,8 @@ impl Client {
             duration,
             encrypted: false,
             sign_interpreted: false,
-            audio_described: false
+            audio_described: false,
+            start: true
         }
     }
 }
