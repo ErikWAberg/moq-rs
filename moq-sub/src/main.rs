@@ -113,7 +113,7 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 }
 
 async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, target: &PathBuf) -> anyhow::Result<()> {
-    let args = [
+    let ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
         "-c:a", "pcm_s16le",
@@ -123,14 +123,16 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
     ].map(|s| s.to_string()).to_vec();
 
     let mut ffmpeg1 = Command::new("ffmpeg")
-        .args(&args)
+        .args(&ffmpeg1_args)
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .spawn()
         .context("failed to spawn ffmpeg process 1")?;
 
+    info!("ffmpeg1 - args: {:?}", ffmpeg1_args.join(" "));
+
     let target = format!("{}/%06d-a0.mp4", target.to_str().unwrap());
-    let args = [
+    let ffmpeg2_args = [
         "-y", "-hide_banner",
         "-ac", "2",
         "-ar", "48000",
@@ -141,7 +143,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
         //"-loglevel", "error",
         target.as_str()
     ].map(|s| s.to_string()).to_vec();
-    info!("ffmpeg1 - args: {:?}", args.join(" "));
+
     let ffmpeg1_stdout: Stdio = ffmpeg1
         .stdout
         .take()
@@ -150,13 +152,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
         .expect("failed to convert to Stdio");
 
     let mut ffmpeg2 = Command::new("ffmpeg")
-        .args(&args)
+        .args(&ffmpeg2_args)
         .stdin(ffmpeg1_stdout)
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
         .context("failed to spawn ffmpeg process 2")?;
-    info!("ffmpeg2 - args: {:?}", args.join(" "));
+    info!("ffmpeg2 - args: {:?}", ffmpeg2_args.join(" "));
     let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg1 stdin").unwrap();
 
     let handle = tokio::spawn(async move {
