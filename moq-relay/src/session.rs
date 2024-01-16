@@ -162,13 +162,6 @@ impl Session {
 					return Ok(()) // not OK but idk how to return err
 				}
 			}
-			// delay 2s
-			tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
-			let res = vompc.start_auto().await;
-			if let Err(err) = res {
-				error!("failed to start episode: {}", err);
-				return Ok(()) // not OK but idk how to return err
-			}
 		}
 
 
