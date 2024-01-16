@@ -77,6 +77,8 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
                             children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
+                            //fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
+                            //fs::remove_file(&audio_src).expect("remove audio failed");
                         }
 
                         prev_video_ms = now_ms;
