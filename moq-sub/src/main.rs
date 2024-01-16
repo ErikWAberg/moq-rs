@@ -18,8 +18,8 @@ use futures::StreamExt;
 use log::{error, info};
 use nix::unistd::pipe;
 use tokio::fs::File;
+use tokio::time::Duration as TokioDuration;
 use tokio::io::AsyncWriteExt;
-use std::time::Duration as StdDuration;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -69,7 +69,7 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
     Ok(())
 }
 
-fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Result<()> {
+async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> anyhow::Result<()> {
     let mut last_contents = Vec::new();
 
     fs::create_dir_all("dump/encoder")?;
@@ -78,12 +78,6 @@ fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Resul
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
     loop {
         let mut current_contents = Vec::new();
-        let suffix = match file_type {
-            "audio" => "a0",
-            "video" => "v0",
-            _ => "",
-        };
-
 
         // Read the current contents of the file
         match fs::File::open(&file_path) {
@@ -97,7 +91,7 @@ fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Resul
             Err(_) => {
                 println!("Waiting for file to be created: {}", &file_path);
                 // File does not exist or cannot be opened, continue to next iteration
-                thread::sleep(StdDuration::from_millis(100));
+                tokio::time::sleep(TokioDuration::from_millis(100)).await;
                 continue;
             }
         }
@@ -115,13 +109,8 @@ fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Resul
                                 let start_sec = start_ms as f64 / 1000.0;
                                 start_time = ((start_sec * 10.0).round() * 100.0) as u64;
                             }
-
-                            // Format with left-padding
-
                             rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number);
-
                             rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number);
-
 
                         }
                     }
@@ -129,8 +118,7 @@ fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Resul
             }
             last_contents = current_contents;
         }
-
-        thread::sleep(StdDuration::from_millis(100));
+        tokio::time::sleep(TokioDuration::from_millis(100)).await;
     }
 }
 
@@ -249,22 +237,10 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
     let d = output.clone();
-    let video_thread = thread::spawn(move || {
-        watch_file("dump/video_segments.txt".to_string(), "video", &d).unwrap();
+    let video_thread = tokio::spawn(async move  {
+        watch_file("dump/video_segments.txt".to_string(), "video", &d).await.unwrap()
     });
-
-
-    let mut i = 0;
-    for track in tracks {
-        let subscriber = subscriber.clone();
-        let pipes = pipes.clone();
-        let handle = tokio::spawn(async move {
-            let (_, writer) = pipes[i];
-            track_subscriber(track, subscriber, writer).await.unwrap();
-        });
-        handles.push(handle);
-        i = i + 1;
-    }
+    handles.push(video_thread);
 
 
     tokio::select! {
