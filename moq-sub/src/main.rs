@@ -112,8 +112,8 @@ async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> any
                                 fs::create_dir_all("dump/encoder")?;
                                 fs::create_dir_all(&output)?;
                             }
-                            rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number);
-                            rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number);
+                            rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number).await;
+                            rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number).await;
 
                         }
                     }
@@ -139,13 +139,14 @@ async fn remove_files(path: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &str, line: String, segment_number: u32) {
+async fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &str, line: String, segment_number: u32) {
     let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
     let original_file_path = Path::new("dump/").join(line);
     let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
     let video = suffix == "v0";
     if video {
-        ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
+        let mut child = ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
+        child.wait().await.expect("rename ffmpeg failed");
         println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
     } else {
         if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
@@ -155,11 +156,11 @@ fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &s
         }
     }
 
-
     let new_file_path = output.join(new_file_name);
 
     if video {
-        ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
+        let mut child = ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
+        child.wait().await.expect("rename ffmpeg failed");
         println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
     } else {
         if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
