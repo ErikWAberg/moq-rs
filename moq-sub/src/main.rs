@@ -112,7 +112,7 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
     format!("{:.3}", timestamp)
 }
 
-async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, target: &PathBuf) -> anyhow::Result<()> {
+async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
     let ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
@@ -132,7 +132,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
 
     info!("ffmpeg1 - args: {:?}", ffmpeg1_args.join(" "));
 
-    let target = format!("{}/%06d-a0.mp4", target.to_str().unwrap());
+    let target = format!("dump/%06d-a0.mp4");
     let ffmpeg2_args = [
         "-y", "-hide_banner",
         "-ac", "2",
@@ -250,10 +250,9 @@ async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyh
 
     for track in tracks {
         let subscriber = subscriber.clone();
-        let target = target.clone();
         let handle = tokio::spawn(async move {
             if track.kind() == TrackKind::Audio {
-                track_subscriber_audio(track, subscriber, &target).await.unwrap()
+                track_subscriber_audio(track, subscriber).await.unwrap()
             } else {
                 track_subscriber(track, subscriber).await.unwrap()
             }
