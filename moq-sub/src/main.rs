@@ -1,6 +1,7 @@
 use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 
 use anyhow::Context;
 use chrono::{Duration, Utc};
@@ -11,8 +12,9 @@ use inotify::{Inotify, WatchMask};
 use log::{error, info};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use tokio::select;
+use tokio::{join, select};
 use tokio::fs as TokioFs;
+use tokio::process::Command;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -36,7 +38,9 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 		.expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
     let local_target = Path::new("/dump/encoder");
+
     fs::create_dir_all(local_target)?;
+
 	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
 
@@ -77,13 +81,15 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         }
 
                         children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
-                        children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
+                        //children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
 
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));
+                            /*children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));
                             let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));
+                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));*/
+                            fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
+                            fs::remove_file(&audio_src).expect("remove audio failed");
                         }
 
                         prev_video_ms = now_ms;
@@ -106,11 +112,94 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
     format!("{:.3}", timestamp)
 }
 
+async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, target: &PathBuf) -> anyhow::Result<()> {
+    let args = [
+        "-y", "-hide_banner",
+        "-i", "pipe:0",
+        "-c:a", "pcm_s16le",
+        "-f", "s16le",
+        "-loglevel", "error",
+        "-",
+    ].map(|s| s.to_string()).to_vec();
 
+    let mut ffmpeg1 = Command::new("ffmpeg")
+        .args(&args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to spawn ffmpeg process 1")?;
+
+    let target = format!("{}/%06d-a0.mp4", target.to_str().unwrap());
+    let args = [
+        "-y", "-hide_banner",
+        "-ac", "2",
+        "-ar", "48000",
+        "-f", "s16le",
+        "-i", "pipe:0",
+        "-f", "segment",
+        "-segment_time", "3.2",
+        "-loglevel", "error",
+        target.as_str()
+    ].map(|s| s.to_string()).to_vec();
+
+    let ffmpeg1_stdout: Stdio = ffmpeg1
+        .stdout
+        .take()
+        .unwrap()
+        .try_into()
+        .expect("failed to convert to Stdio");
+
+    let mut ffmpeg2 = Command::new("ffmpeg")
+        .args(&args)
+        .stdin(ffmpeg1_stdout)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to spawn ffmpeg process 1")?;
+
+    let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg stdin").unwrap();
+
+    let handle = tokio::spawn(async move {
+        let mut init_track_subscriber = subscriber
+            .get_track(track.init_track().as_str())
+            .context("failed to get init track").unwrap();
+
+        let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
+
+        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
+        ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
+        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
+
+        let mut data_track_subscriber = subscriber
+            .get_track(track.data_track().as_str())
+            .context("failed to get data track").unwrap();
+
+        loop {
+            let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
+            ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
+            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
+        }
+
+    });
+
+    select! {
+        _ = ffmpeg1.wait() => {},
+        _ = ffmpeg2.wait() => {},
+        _ = handle => {
+            error!("killing ffmpeg");
+            ffmpeg1.kill().await?;
+            ffmpeg2.kill().await?;
+        },
+    }
+    info!("done with track");
+    Ok(())
+}
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
     let ffmpeg_args = ffmpeg::args(track.deref());
     let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
     let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
+    //let local_raw = Path::new("/dump/raw");
+    //fs::create_dir_all(local_raw)?;
 
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
@@ -148,7 +237,7 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyh
     Ok(())
 }
 
-async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
+async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyhow::Result<()> {
     let mut catalog_track_subscriber = subscriber
         .get_track(".catalog")
         .context("failed to get catalog track")?;
@@ -158,8 +247,13 @@ async fn run_track_subscribers(subscriber: Subscriber) -> anyhow::Result<()> {
 
     for track in tracks {
         let subscriber = subscriber.clone();
+        let target = target.clone();
         let handle = tokio::spawn(async move {
-            track_subscriber(track, subscriber).await.unwrap();
+            if track.kind() == TrackKind::Audio {
+                track_subscriber_audio(track, subscriber, &target).await.unwrap()
+            } else {
+                track_subscriber(track, subscriber).await.unwrap()
+            }
         });
         handles.push(handle);
     }
@@ -255,9 +349,10 @@ async fn main() -> anyhow::Result<()> {
     println!("working dir: {:?}", std::env::current_dir().unwrap());
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
+    let target_output = config.output.clone();
 
     let handle = tokio::spawn(async move {
-        let res = file_renamer(&config.output).await;
+        let res = file_renamer(&target_output).await;
         match res {
             Ok(_) => {},
             Err(e) => error!("file_renamer exited with error: {}", e),
@@ -267,7 +362,7 @@ async fn main() -> anyhow::Result<()> {
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
-		res = run_track_subscribers(subscriber) => res.context("application error")?,
+		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?,
 		res = handle => res.context("renamer error")?,
 	}
     error!("exiting");

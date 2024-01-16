@@ -2,12 +2,67 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::{Context, Error};
+use tokio::join;
 use tokio::process::{Child, Command};
+
 use tracing_subscriber::fmt::format;
 
 use crate::catalog::Track;
 
+//ffmpeg -i ../dump/audio-continuous.mp4 -c:a pcm_s16le -f s16le -ac 2 out.pcm
+//ffmpeg -f s16le -ac 2 -ar 48000 -i out.pcm -f segment -segment_time 3.2 audio_%03d.mp4
 
+pub async fn tight_audio_exe( dst: &PathBuf)-> Result<(), Error> {
+	let args = [
+		"-y", "-hide_banner",
+		"-i", "pipe:0",
+		"-c:a", "pcm_s16le",
+		"-f", "s16le",
+		"-loglevel", "error",
+		"-",
+	].map(|s| s.to_string()).to_vec();
+
+	let mut ffmpeg1 = Command::new("ffmpeg")
+		.args(&args)
+		.stdout(Stdio::piped())
+		.stderr(Stdio::inherit())
+		.spawn()
+		.context("failed to spawn ffmpeg process 1")?;
+
+	let target = format!("{}/%06d-a0.mp4", dst.to_str().unwrap());
+	let args = [
+		"-y", "-hide_banner",
+		"-ac", "2",
+		"-ar", "48000",
+		"-f", "s16le",
+		"-i", "pipe:0",
+		"-f", "segment",
+		"-segment_time", "3.2",
+		"-loglevel", "error",
+		target.as_str()
+	].map(|s| s.to_string()).to_vec();
+
+	let ffmpeg1_stdout: Stdio = ffmpeg1
+		.stdout
+		.take()
+		.unwrap()
+		.try_into()
+		.expect("failed to convert to Stdio");
+
+	let mut ffmpeg2 = Command::new("ffmpeg")
+		.args(&args)
+		.stdin(ffmpeg1_stdout)
+		.stdout(Stdio::piped())
+		.stderr(Stdio::inherit())
+		.spawn()
+		.context("failed to spawn ffmpeg process 1")?;
+
+	let (res1, res2) = join!(ffmpeg1.wait(), ffmpeg2.wait());
+	assert!(res1.unwrap().success());
+	assert!(res2.unwrap().success());
+
+	Ok(())
+}
 pub fn change_timescale(src: &PathBuf, dst: &PathBuf, ext: &str) -> Result<Child, Error> {
 	//MP4Box   -add "211-a0.mp4:timescale=90000"  ../211-a0-2.mp4
 	let src = src.to_str().unwrap();
