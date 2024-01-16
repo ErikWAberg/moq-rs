@@ -16,6 +16,7 @@ pub fn change_timescale(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 		dst.to_str().unwrap(),
 	].map(|s| s.to_string()).to_vec();
 
+	println!("MP4Box args: {:?}", args.join(" "));
 
 	let mp4box = Command::new("MP4Box")
 		.args(&args)

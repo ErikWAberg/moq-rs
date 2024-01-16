@@ -78,12 +78,10 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
                         children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
                         children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
-                        fs::remove_file(&src).expect("remove video failed");
 
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed");
-                            fs::remove_file(&audio_src).expect("remove audio failed");
+                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed")));
                         }
 
                         prev_video_ms = now_ms;
