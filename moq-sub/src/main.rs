@@ -27,7 +27,7 @@ mod catalog;
 mod subscriber;
 mod ffmpeg;
 
-async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
+async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
     let mut start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
@@ -46,7 +46,6 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
     let mut prev_video_ms = 0 as u64;
     loop {
-        let mut children = Vec::new();
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
             .expect("Error while reading events");
@@ -70,38 +69,30 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                     let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
                     fs::create_dir_all(target)?;
+                    if parts[1].ends_with(filter_kind) {
+                        if parts[1].ends_with("v0.mp4") {
+                            info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
 
-                    if parts[1].ends_with("v0.mp4") {
-                        info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
-
-                        if prev_video_ms != 0 {
-                            let diff = now_ms - prev_video_ms;
-                            info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
+                            if prev_video_ms != 0 {
+                                let diff = now_ms - prev_video_ms;
+                                info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
+                            }
+                            ffmpeg::change_timescale_ffmpeg(&src, &dst).await?;
+                            fs::remove_file(&src).expect("remove video failed");
+                            prev_video_ms = now_ms;
+                        } else {
+                            if audio_src.exists() {
+                                let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                                fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
+                                fs::remove_file(&audio_src).expect("remove audio failed");
+                            }
                         }
-
-                        children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
-                        //children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
-
-                        if audio_src.exists() {
-                            let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            /*children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));
-                            let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":au_delim").expect("change timescale for audio via mp4box failed")));*/
-                            fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
-                            fs::remove_file(&audio_src).expect("remove audio failed");
-                        }
-
-                        prev_video_ms = now_ms;
                     }
+
                 }
             }
         }
 
-        for child in children {
-            if let Some(mut child) = child {
-                child.wait().await.expect("rename failed");
-            }
-        }
     }
 }
 
@@ -353,7 +344,16 @@ async fn main() -> anyhow::Result<()> {
     let target_output = config.output.clone();
 
     let handle = tokio::spawn(async move {
-        let res = file_renamer(&target_output).await;
+        let res = file_renamer(&target_output, "a0.mp4").await;
+        match res {
+            Ok(_) => {},
+            Err(e) => error!("file_renamer exited with error: {}", e),
+        }
+    });
+
+    let target_output = config.output.clone();
+    let handle2 = tokio::spawn(async move {
+        let res = file_renamer(&target_output, "v0.mp4").await;
         match res {
             Ok(_) => {},
             Err(e) => error!("file_renamer exited with error: {}", e),
@@ -364,7 +364,8 @@ async fn main() -> anyhow::Result<()> {
     tokio::select! {
 		res = session.run() => res.context("session error")?,
 		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?,
-		res = handle => res.context("renamer error")?,
+		res = handle => res.context("renamer audio error")?,
+		res = handle2 => res.context("renamer video error")?,
 	}
     error!("exiting");
 

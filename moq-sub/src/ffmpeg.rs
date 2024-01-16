@@ -33,30 +33,28 @@ pub fn change_timescale(src: &PathBuf, dst: &PathBuf, ext: &str) -> Result<Child
 	Ok(mp4box)
 }
 
-pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Error> {
+pub async fn change_timescale_ffmpeg(src: &PathBuf, dst: &PathBuf) -> Result<(), Error> {
 	let mut  args = [
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
 		"-c", "copy",
 		"-loglevel", "error",
 		"-reset_timestamps", "1",
+		"-video_track_timescale", "90000",
 
 	].map(|s| s.to_string()).to_vec();
-	if video {
-		args.push("-video_track_timescale".to_string());
-	 	args.push("90000".to_string());
-	}
 
 	args.push(format!("{}", dst.to_str().unwrap()));
 
-	let ffmpeg = Command::new("ffmpeg")
+	let mut ffmpeg = Command::new("ffmpeg")
 		.args(&args)
 		.stdout(Stdio::null())
 		.stderr(Stdio::null())
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
-
-	Ok(ffmpeg)
+	let x = ffmpeg.wait();
+	x.await.context("failed to wait for ffmpeg process")?;
+	Ok(())
 }
 
 pub fn spawn(args: Vec<String>) -> Result<Child, Error> {
