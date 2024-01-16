@@ -82,6 +82,8 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
                             children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed")));
+                            let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed")));
                         }
 
                         prev_video_ms = now_ms;

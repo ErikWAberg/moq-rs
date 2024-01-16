@@ -20,8 +20,8 @@ pub fn change_timescale(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 
 	let mp4box = Command::new("MP4Box")
 		.args(&args)
-		.stdout(Stdio::null())
-		.stderr(Stdio::null())
+		.stdout(Stdio::inherit())
+		.stderr(Stdio::inherit())
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
 
