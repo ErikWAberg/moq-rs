@@ -67,9 +67,10 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                     let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
                     fs::create_dir_all(target)?;
-                    info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
 
                     if parts[1].ends_with("v0.mp4") {
+                        info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
+
                         if prev_video_ms != 0 {
                             let diff = now_ms - prev_video_ms;
                             info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);

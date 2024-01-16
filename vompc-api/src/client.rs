@@ -47,8 +47,8 @@ impl Client {
         Self { url, client, episodes_offset, episodes_created: 0 }
     }
 
-    pub async fn start(&mut self, episode_version_id: &str) -> Result<(), ApiError> {
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
+    pub async fn start(&mut self, episode_number: &str) -> Result<(), ApiError> {
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/start");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
@@ -56,8 +56,8 @@ impl Client {
     }
 
     pub async fn start_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/start");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
@@ -66,8 +66,8 @@ impl Client {
     }
 
     pub async fn stop_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/stop");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/stop");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
@@ -76,8 +76,8 @@ impl Client {
     }
 
     pub async fn delete_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/delete");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/delete");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
