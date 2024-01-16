@@ -255,11 +255,21 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
 
 
     let d = output.clone();
-    /*let video_thread = tokio::spawn(async move  {
+    let video_thread = tokio::spawn(async move  {
         watch_file("dump/video_segments.txt".to_string(), "video", &d).await.unwrap()
     });
-    handles.push(video_thread);*/
-
+    handles.push(video_thread);
+    let mut i = 0;
+    for track in tracks {
+        let subscriber = subscriber.clone();
+        let pipes = pipes.clone();
+        let handle = tokio::spawn(async move {
+            let (_, writer) = pipes[i];
+            track_subscriber(track, subscriber, writer).await.unwrap();
+        });
+        handles.push(handle);
+        i = i + 1;
+    }
 
     tokio::select! {
 		_ = handles.next(), if ! handles.is_empty() => {},
@@ -341,11 +351,11 @@ async fn main() -> anyhow::Result<()> {
     info!("stating subscriber for {stream_name}");
 
     println!("working dir: {:?}", std::env::current_dir().unwrap());
-    /*remove_files("dump/encoder").await?;
+    remove_files("dump/encoder").await?;
     remove_files("dump").await?;
 
     fs::create_dir_all("dump/encoder")?;
-    fs::create_dir_all(&config.output)?;*/
+    fs::create_dir_all(&config.output)?;
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
