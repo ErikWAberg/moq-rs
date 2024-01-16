@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
 
 	let config = Config::parse();
 	let tls = Tls::load(&config)?;
-	let _ = tokio::spawn(async move {
+	let handle = tokio::spawn(async move {
 
 		let parent_pid = std::process::id();
 		loop {
@@ -76,6 +76,7 @@ async fn main() -> anyhow::Result<()> {
 		// Unfortunately we can't use preconditions because Tokio still executes the branch; just ignore the result
 		tokio::select! {
 			res = quic.serve() => res.context("failed to run quic server"),
+			res = handle => res.context("failed to run reaper"),
 			res = web.serve() => res.context("failed to run web server"),
 		}
 	} else {
