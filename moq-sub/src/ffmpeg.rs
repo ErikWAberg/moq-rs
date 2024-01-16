@@ -15,12 +15,14 @@ pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Erro
 		//"-frag_duration", "3200000",
 		//"-movflags", "+dash,+faststart,+global_sidx",
 		//"-movflags", "+faststart,+global_sidx",
-		dst.to_str().unwrap()
+
 	].map(|s| s.to_string()).to_vec();
 	if video {
 		args.push("-video_track_timescale".to_string());
 	 	args.push("90000".to_string());
 	}
+
+	args.push(format!("{}", dst.to_str().unwrap()));
 
 	let ffmpeg = Command::new("ffmpeg")
 		.args(&args)
