@@ -9,7 +9,7 @@ use std::process::Command;
 use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::Context;
+use anyhow::{Context, Error};
 use anyhow::Result;
 use chrono::{Duration, Utc};
 use clap::Parser;
@@ -18,6 +18,7 @@ use futures::StreamExt;
 use log::{error, info};
 use nix::unistd::pipe;
 use tokio::fs::File;
+use tokio::fs as TokioFs;
 use tokio::time::Duration as TokioDuration;
 use tokio::io::AsyncWriteExt;
 
@@ -71,8 +72,9 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
 
 async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> anyhow::Result<()> {
     let mut last_contents = Vec::new();
-    fs::remove_dir_all("/dump")?;
-    fs::remove_dir_all(output)?;
+
+    remove_files("dump/encoder").await?;
+    remove_files("dump").await?;
 
     fs::create_dir_all("dump/encoder")?;
     fs::create_dir_all(output)?;
@@ -124,6 +126,16 @@ async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> any
         }
         tokio::time::sleep(TokioDuration::from_millis(100)).await;
     }
+}
+
+async fn remove_files(path: &str) -> anyhow::Result<()> {
+    let mut dir = TokioFs::read_dir(path).await?;
+    while let Some(entry) = dir.next_entry().await? {
+        if entry.file_type().await?.is_file() {
+            TokioFs::remove_file(entry.path()).await?;
+        }
+    }
+    Ok(())
 }
 
 fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &str, line: String, segment_number: u32) {
