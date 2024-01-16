@@ -73,11 +73,6 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
 async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> anyhow::Result<()> {
     let mut last_contents = Vec::new();
 
-    remove_files("dump/encoder").await?;
-    remove_files("dump").await?;
-
-    fs::create_dir_all("dump/encoder")?;
-    fs::create_dir_all(output)?;
 
 
     let mut start_time = 0;
@@ -202,8 +197,8 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     let mut args = Vec::new();
 
     args.push("-y".to_string());
-    //args.push("-loglevel".to_string());
-    //args.push("error".to_string());
+    args.push("-loglevel".to_string());
+    args.push("error".to_string());
     args.push("-hide_banner".to_string());
     for (reader, _) in &pipes {
         args.push("-i".to_string());
@@ -217,6 +212,10 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     args.push("1:v".to_string());
     args.push("-s".to_string());
     args.push("1280x720".to_string());
+    args.push("-r".to_string());
+    args.push("50".to_string());
+    args.push("-g".to_string());
+    args.push("160".to_string());
     args.push("-c:v".to_string());
     args.push("libx264".to_string());
     args.push("-force_key_frames".to_string());
@@ -343,6 +342,11 @@ async fn main() -> anyhow::Result<()> {
     info!("stating subscriber for {stream_name}");
 
     println!("working dir: {:?}", std::env::current_dir().unwrap());
+    remove_files("dump/encoder").await?;
+    remove_files("dump").await?;
+
+    fs::create_dir_all("dump/encoder")?;
+    fs::create_dir_all(&config.output)?;
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
