@@ -132,7 +132,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
 
     info!("ffmpeg1 - args: {:?}", ffmpeg1_args.join(" "));
 
-    let target = format!("dump/%06d-a0.mp4");
+    let target = format!("dump/%d-a0.mp4");
     let ffmpeg2_args = [
         "-y", "-hide_banner",
         "-ac", "2",
