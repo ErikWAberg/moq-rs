@@ -11,8 +11,9 @@ pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Erro
 		"-y", "-hide_banner",
 		"-i", src.to_str().unwrap(),
 		"-c", "copy",
-		"-frag_duration", "20000",
-		"-movflags", "+cmaf,+faststart,+global_sidx",
+		"-frag_duration", "3200000",
+		//"-movflags", "+dash,+faststart,+global_sidx",
+		"-movflags", "+faststart,+global_sidx",
 		dst.to_str().unwrap()
 	].map(|s| s.to_string()).to_vec();
 	if video {
