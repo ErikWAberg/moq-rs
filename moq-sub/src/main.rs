@@ -76,14 +76,14 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
                             info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
                         }
 
-                        children.push(Some(ffmpeg::fragment(&src, &dst, true).expect("rename video via ffmpeg failed")));
-                        children.push(Some(ffmpeg::fragment(&src, &local_dst, true).expect("rename video via ffmpeg failed")));
+                        children.push(Some(ffmpeg::change_timescale(&src, &dst, ":ext=h264").expect("rename video via ffmpeg failed")));
+                        children.push(Some(ffmpeg::change_timescale(&src, &local_dst, ":ext=h264").expect("rename video via ffmpeg failed")));
 
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed")));
+                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":ext=aac").expect("change timescale for audio via mp4box failed")));
                             let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst).expect("change timescale for audio via mp4box failed")));
+                            children.push(Some(ffmpeg::change_timescale(&audio_src, &audio_dst, ":ext=aac").expect("change timescale for audio via mp4box failed")));
                         }
 
                         prev_video_ms = now_ms;
