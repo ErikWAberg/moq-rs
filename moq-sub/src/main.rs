@@ -71,9 +71,13 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
 
 async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> anyhow::Result<()> {
     let mut last_contents = Vec::new();
+    fs::remove_dir_all("/dump")?;
+    fs::remove_dir_all(output)?;
 
     fs::create_dir_all("dump/encoder")?;
     fs::create_dir_all(output)?;
+
+
     let mut start_time = 0;
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
     loop {
