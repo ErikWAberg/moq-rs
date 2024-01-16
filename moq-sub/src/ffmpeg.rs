@@ -3,8 +3,29 @@ use std::process::Stdio;
 
 use anyhow::{Context, Error};
 use tokio::process::{Child, Command};
+use tracing_subscriber::fmt::format;
 
 use crate::catalog::Track;
+
+
+pub fn change_timescale(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
+	//MP4Box   -add "211-a0.mp4:timescale=90000"  ../211-a0-2.mp4
+
+	let mut  args = [
+		"-add", format!("{src:?}:timescale=90000", src=src).as_str(),
+		dst.to_str().unwrap(),
+	].map(|s| s.to_string()).to_vec();
+
+
+	let mp4box = Command::new("MP4Box")
+		.args(&args)
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
+		.spawn()
+		.context("failed to spawn ffmpeg process")?;
+
+	Ok(mp4box)
+}
 
 pub fn fragment(src: &PathBuf, dst: &PathBuf, video: bool) -> Result<Child, Error> {
 	let mut  args = [
