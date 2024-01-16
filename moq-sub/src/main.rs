@@ -253,13 +253,12 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
         .spawn()
         .context("failed to spawn FFmpeg process")?;
 
-    let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
     let d = output.clone();
-    let video_thread = tokio::spawn(async move  {
+    /*let video_thread = tokio::spawn(async move  {
         watch_file("dump/video_segments.txt".to_string(), "video", &d).await.unwrap()
     });
-    handles.push(video_thread);
+    handles.push(video_thread);*/
 
 
     tokio::select! {
@@ -342,11 +341,11 @@ async fn main() -> anyhow::Result<()> {
     info!("stating subscriber for {stream_name}");
 
     println!("working dir: {:?}", std::env::current_dir().unwrap());
-    remove_files("dump/encoder").await?;
+    /*remove_files("dump/encoder").await?;
     remove_files("dump").await?;
 
     fs::create_dir_all("dump/encoder")?;
-    fs::create_dir_all(&config.output)?;
+    fs::create_dir_all(&config.output)?;*/
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
