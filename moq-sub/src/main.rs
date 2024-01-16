@@ -72,6 +72,8 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
 fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &PathBuf) -> io::Result<()> {
     let mut last_contents = Vec::new();
 
+    fs::create_dir_all("dump/encoder")?;
+    fs::create_dir_all(output)?;
 
     loop {
         let mut current_contents = Vec::new();
@@ -108,11 +110,8 @@ fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &Path
                     if let Some(segment_str) = line.split('_').nth(1) {
                         if let Ok(segment_number) = segment_str[..3].parse::<u32>() {
 
-
                             // Format with left-padding
-                            //let new_file_name = format!("{:10}.{:03}_{}.mp4", seconds, milliseconds, suffix);
                             let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
-                            fs::create_dir_all("dump/encoder")?;
                             let original_file_path = Path::new("dump/").join(line);
                             let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
 
