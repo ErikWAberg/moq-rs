@@ -138,19 +138,30 @@ fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &s
     let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
     let original_file_path = Path::new("dump/").join(line);
     let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
-
-    if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
-        eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
-    } else {
+    let video = suffix == "v0";
+    if video {
+        ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
         println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+    } else {
+        if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+            eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+        } else {
+            println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+        }
     }
+
 
     let new_file_path = output.join(new_file_name);
 
-    if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
-        eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
-    } else {
+    if video {
+        ffmpeg::fragment(&original_file_path, &new_file_path, video).unwrap();
         println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+    } else {
+        if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+            eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+        } else {
+            println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+        }
     }
     fs::remove_file(&original_file_path).expect("unable to delete file: {original_file_path:?}");
 }
