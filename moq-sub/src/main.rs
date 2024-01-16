@@ -109,6 +109,8 @@ async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> any
                                 let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
                                 let start_sec = start_ms as f64 / 1000.0;
                                 start_time = ((start_sec * 10.0).round() * 100.0) as u64;
+                                fs::create_dir_all("dump/encoder")?;
+                                fs::create_dir_all(&config.output)?;
                             }
                             rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number);
                             rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number);
@@ -354,8 +356,7 @@ async fn main() -> anyhow::Result<()> {
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
 
-    fs::create_dir_all("dump/encoder")?;
-    fs::create_dir_all(&config.output)?;
+
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
