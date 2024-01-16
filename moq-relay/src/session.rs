@@ -163,7 +163,7 @@ impl Session {
 				}
 			}
 			// delay 2s
-			tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+			tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
 			let res = vompc.start_auto().await;
 			if let Err(err) = res {
 				error!("failed to start episode: {}", err);
