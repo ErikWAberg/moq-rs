@@ -202,8 +202,8 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     let mut args = Vec::new();
 
     args.push("-y".to_string());
-    args.push("-loglevel".to_string());
-    args.push("error".to_string());
+    //args.push("-loglevel".to_string());
+    //args.push("error".to_string());
     args.push("-hide_banner".to_string());
     for (reader, _) in &pipes {
         args.push("-i".to_string());
