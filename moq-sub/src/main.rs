@@ -36,7 +36,7 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 		.expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
     let local_target = Path::new("/dump/encoder");
-
+    fs::create_dir_all(local_target)?;
 	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
 
@@ -81,11 +81,11 @@ async fn file_renamer(target: &PathBuf) -> anyhow::Result<()> {
 
                         if audio_src.exists() {
                             let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
+                            /*children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
                             let audio_dst = local_target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));
-                            //fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
-                            //fs::remove_file(&audio_src).expect("remove audio failed");
+                            children.push(Some(ffmpeg::fragment(&audio_src, &audio_dst, false).expect("rename audio via ffmpeg failed")));*/
+                            fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
+                            fs::remove_file(&audio_src).expect("remove audio failed");
                         }
 
                         prev_video_ms = now_ms;
