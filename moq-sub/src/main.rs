@@ -69,12 +69,13 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber, fd: Raw
     Ok(())
 }
 
-fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &PathBuf) -> io::Result<()> {
+fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> io::Result<()> {
     let mut last_contents = Vec::new();
 
     fs::create_dir_all("dump/encoder")?;
     fs::create_dir_all(output)?;
-
+    let mut start_time = 0;
+    let ntp_epoch_offset = Duration::milliseconds(2208988800000);
     loop {
         let mut current_contents = Vec::new();
         let suffix = match file_type {
@@ -109,26 +110,17 @@ fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &Path
 
                     if let Some(segment_str) = line.split('_').nth(1) {
                         if let Ok(segment_number) = segment_str[..3].parse::<u32>() {
+                            if start_time == 0 {
+                                let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+                                let start_sec = start_ms as f64 / 1000.0;
+                                start_time = ((start_sec * 10.0).round() * 100.0) as u64;
+                            }
 
                             // Format with left-padding
-                            let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
-                            let original_file_path = Path::new("dump/").join(line);
-                            let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
 
-                            if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
-                                eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
-                            } else {
-                                println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
-                            }
+                            rename_to_timestamped_filename(output, start_time, "v0", format!("video-{:03}.mp4", segment_number), segment_number);
 
-                            let new_file_path = output.join(new_file_name);
-
-                            if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
-                                eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
-                            } else {
-                                println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
-                            }
-                            fs::remove_file(&original_file_path).expect("unable to delete file: {original_file_path:?}");
+                            rename_to_timestamped_filename(output, start_time, "a0", format!("audio-{:03}.mp4", segment_number), segment_number);
 
 
                         }
@@ -140,6 +132,27 @@ fn watch_file(file_path: String, file_type: &str, start_time: u64, output: &Path
 
         thread::sleep(StdDuration::from_millis(100));
     }
+}
+
+fn rename_to_timestamped_filename(output: &PathBuf,  start_time: u64, suffix: &str, line: String, segment_number: u32) {
+    let new_file_name = format!("{}-{}.mp4", segment_timestamp(start_time, segment_number), suffix);
+    let original_file_path = Path::new("dump/").join(line);
+    let new_file_path = Path::new("dump/encoder").join(new_file_name.clone());
+
+    if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+        eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+    } else {
+        println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+    }
+
+    let new_file_path = output.join(new_file_name);
+
+    if let Err(e) = fs::copy(&original_file_path, &new_file_path) {
+        eprintln!("Error renaming file {:?} to {:?}: {}", original_file_path, new_file_path, e);
+    } else {
+        println!("Renamed {:?} to {:?}", original_file_path, new_file_path);
+    }
+    fs::remove_file(&original_file_path).expect("unable to delete file: {original_file_path:?}");
 }
 
 fn segment_timestamp(start: u64, segment_no: u32) -> String {
@@ -223,17 +236,10 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
         .context("failed to spawn FFmpeg process")?;
 
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
-    let start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-    let start_sec = start_ms as f64 / 1000.0;
-    let start_time_tenthofsec_ms = ((start_sec * 10.0).round() * 100.0) as u64;
-    let d = output.clone();
-    let audio_thread = thread::spawn(move || {
-        watch_file("dump/audio_segments.txt".to_string(), "audio", start_time_tenthofsec_ms, &d).unwrap();
-    });
 
     let d = output.clone();
     let video_thread = thread::spawn(move || {
-        watch_file("dump/video_segments.txt".to_string(), "video", start_time_tenthofsec_ms, &d).unwrap();
+        watch_file("dump/video_segments.txt".to_string(), "video", &d).unwrap();
     });
 
 
