@@ -225,8 +225,6 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     args.push("segment".to_string());
     args.push("-segment_time".to_string());
     args.push("3.2".to_string());
-    args.push("-frag_duration".to_string());
-    args.push("3200000".to_string());
     args.push("-reset_timestamps".to_string());
     args.push("1".to_string());
     args.push("-segment_list".to_string());
