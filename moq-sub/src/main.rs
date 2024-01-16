@@ -110,7 +110,7 @@ async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> any
                                 let start_sec = start_ms as f64 / 1000.0;
                                 start_time = ((start_sec * 10.0).round() * 100.0) as u64;
                                 fs::create_dir_all("dump/encoder")?;
-                                fs::create_dir_all(&config.output)?;
+                                fs::create_dir_all(&output)?;
                             }
                             rename_to_timestamped_filename(output, start_time, "v0", format!("video_{:03}.mp4", segment_number), segment_number);
                             rename_to_timestamped_filename(output, start_time, "a0", format!("audio_{:03}.mp4", segment_number), segment_number);
