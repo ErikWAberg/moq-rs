@@ -259,12 +259,15 @@ async fn remove_files(path: &str) -> anyhow::Result<()> {
         println!("path does not exist {path}");
         return Ok(());
     }
+    let mut count = 0;
     let mut dir = TokioFs::read_dir(path).await?;
     while let Some(entry) = dir.next_entry().await? {
         if entry.file_type().await?.is_file() {
             TokioFs::remove_file(entry.path()).await?;
+            count += 1;
         }
     }
+    println!(" DELETED {count} files from {path}");
     Ok(())
 }
 
