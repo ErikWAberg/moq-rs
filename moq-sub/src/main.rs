@@ -118,7 +118,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
         "-i", "pipe:0",
         "-c:a", "pcm_s16le",
         "-f", "s16le",
-        "-loglevel", "error",
+       // "-loglevel", "error",
         "-",
     ].map(|s| s.to_string()).to_vec();
 
@@ -138,10 +138,10 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
         "-i", "pipe:0",
         "-f", "segment",
         "-segment_time", "3.2",
-        "-loglevel", "error",
+        //"-loglevel", "error",
         target.as_str()
     ].map(|s| s.to_string()).to_vec();
-
+    info!("ffmpeg1 - args: {:?}", args.join(" "));
     let ffmpeg1_stdout: Stdio = ffmpeg1
         .stdout
         .take()
@@ -152,12 +152,12 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber, t
     let mut ffmpeg2 = Command::new("ffmpeg")
         .args(&args)
         .stdin(ffmpeg1_stdout)
-        .stdout(Stdio::piped())
+        .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .context("failed to spawn ffmpeg process 1")?;
-
-    let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg stdin").unwrap();
+        .context("failed to spawn ffmpeg process 2")?;
+    info!("ffmpeg2 - args: {:?}", args.join(" "));
+    let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg1 stdin").unwrap();
 
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
