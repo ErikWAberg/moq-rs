@@ -10,9 +10,9 @@ use crate::catalog::Track;
 
 pub fn change_timescale(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
 	//MP4Box   -add "211-a0.mp4:timescale=90000"  ../211-a0-2.mp4
-
+	let src = src.to_str().unwrap();
 	let mut  args = [
-		"-add", format!("{src:?}:timescale=90000", src=src).as_str(),
+		"-add", format!("{src}:timescale=90000").as_str(),
 		dst.to_str().unwrap(),
 	].map(|s| s.to_string()).to_vec();
 
