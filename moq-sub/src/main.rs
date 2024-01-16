@@ -129,6 +129,10 @@ async fn watch_file(file_path: String, file_type: &str, output: &PathBuf) -> any
 }
 
 async fn remove_files(path: &str) -> anyhow::Result<()> {
+    if !Path::new(path).exists() {
+        println!("path does not exist {path}");
+        return Ok(());
+    }
     let mut dir = TokioFs::read_dir(path).await?;
     while let Some(entry) = dir.next_entry().await? {
         if entry.file_type().await?.is_file() {
@@ -267,6 +271,7 @@ async fn run_track_subscribers(subscriber: Subscriber, output: &PathBuf) -> anyh
     Ok(())
 }
 
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     env_logger::init();
@@ -336,6 +341,8 @@ async fn main() -> anyhow::Result<()> {
 
     let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
     info!("stating subscriber for {stream_name}");
+
+    println!("working dir: {:?}", std::env::current_dir().unwrap());
 
     tokio::select! {
 		res = session.run() => res.context("session error")?,
