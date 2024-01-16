@@ -1,5 +1,7 @@
 use anyhow::Context;
 use clap::Parser;
+use log::info;
+use tokio::process::Command;
 
 mod config;
 mod error;
@@ -29,7 +31,38 @@ async fn main() -> anyhow::Result<()> {
 
 	let config = Config::parse();
 	let tls = Tls::load(&config)?;
+	let _ = tokio::spawn(async move {
 
+		let parent_pid = std::process::id();
+		loop {
+			// Use the ps command to get defunct processes
+			let output = Command::new("ps")
+				.arg("-eo")
+				.arg("ppid,pid,stat")
+				.output().await
+				.expect("Failed to execute ps command");
+
+			if let Ok(s) = String::from_utf8(output.stdout) {
+				for line in s.lines() {
+					let parts: Vec<&str> = line.split_whitespace().collect();
+					if parts.len() == 3 && parts[1] == parent_pid.to_string() && parts[2].contains('Z') {
+						// Found a zombie process, now kill it
+						let pid = parts[0];
+						info!("killing zombie process {}", pid);
+						Command::new("kill")
+							.arg("-9")
+							.arg(pid)
+							.output()
+							.await
+							.expect("Failed to kill zombie process");
+					}
+				}
+			}
+
+			// Sleep for a specified duration before checking again
+			tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+		}
+	});
 	// Create a QUIC server for media.
 	let quic = Quic::new(config.clone(), tls.clone())
 		.await
