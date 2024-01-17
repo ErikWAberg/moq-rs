@@ -162,7 +162,7 @@ impl Session {
 					}
 				}
 				println!("sleeping a bit");
-				tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+				tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
 
 				let res = vompc.start_auto().await;
 				match res {
