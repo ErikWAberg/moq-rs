@@ -4,6 +4,7 @@ use anyhow::Context;
 use log::{error, info};
 use tokio::process::Command;
 use tokio::{select, signal};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinHandle;
 use moq_api::ApiError;
 
@@ -177,11 +178,17 @@ impl Session {
 			//TODO send id/pevi to client
 
 		}
-
+		let mut sigterm = signal(SignalKind::terminate()).unwrap();
+		let mut sigint = signal(SignalKind::interrupt()).unwrap();
 		let res = select! {
 			_ = session.run() => None,
-			_ = signal::ctrl_c() =>  {
-				error!("stopping vompc due to ctrl-c");
+			_ = sigint.recv() =>  {
+				error!("stopping vompc due to sigint");
+				Self::vompc_stop(path, &mut vompc).await?;
+				Some(())
+			},
+			_ = sigterm.recv() =>  {
+				error!("stopping vompc due to sigterm");
 				Self::vompc_stop(path, &mut vompc).await?;
 				Some(())
 			}

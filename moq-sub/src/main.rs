@@ -54,22 +54,13 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
             if let Some(file_name) = event.name {
                 info!("got inotify event for file_name: {:?}", file_name);
                 let file_name = file_name.to_str().unwrap();
-
-
                 let parts: Vec<&str> = file_name.split('-').collect();
                 let file_suffix = parts[1];
 
-                // 17-a0.mp4
-                // 17-v0.mp4
-
-
                 if parts.len() == 2 && !file_suffix.ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
-
-
                     let src_segment = src_dir.join(file_name);
 
-                    // file_suffix = a0.mp4 or v0.mp4
 
                     if file_suffix == "v0.mp4" {
                         if start_ms == 0 {
@@ -97,7 +88,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         info!("We got notified for a audio segment: {}", segment_no);
 
                         let src_audio = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
-                        let timestamp = segment_timestamp(start, segment_no - skipped_audio_segments);
+                        let timestamp = segment_timestamp(start, segment_no);
                         info!("Creating a new name for audio segment: {:}", segment_no);
                         let dst_audio = target.join(Path::new(format!("{}-{}", timestamp, "a0.mp4").as_str()));
                         fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
