@@ -15,6 +15,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::{join, select};
 use tokio::fs as TokioFs;
 use tokio::process::Command;
+use tokio::sync::Mutex;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -44,7 +45,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
 	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
 
-    let mut prev_video_ms = 0 as u64;
+    let mut prev_video_ms = 0u64;
     loop {
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
@@ -53,11 +54,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
 
         for event in events {
             if let Some(file_name) = event.name {
-                if start_ms == 0 {
-                    start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-                    start_sec = start_ms as f64 / 1000.0;
-                    start = ((start_sec * 10.0).round() * 100.0) as u64;
-                }
+
                 let file_name = file_name.to_str().unwrap();
 
                 let parts: Vec<&str> = file_name.split('-').collect();
@@ -69,8 +66,13 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                     let src_audio = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
                     fs::create_dir_all(target)?;
-                    if parts[1].ends_with(filter_kind) {
+                    //if parts[1].ends_with(filter_kind) {
                         if parts[1].ends_with("v0.mp4") {
+                            if start_ms == 0 {
+                                start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+                                start_sec = start_ms as f64 / 1000.0;
+                                start = ((start_sec * 10.0).round() * 100.0) as u64;
+                            }
                             //info!("parts: {parts:?} dst: {dst_video:?} src: {src_video:?} src_audio: {src_audio:?}");
 
                             if prev_video_ms != 0 {
@@ -82,6 +84,9 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                             info!("copied video: {dst_video:?}");
                             prev_video_ms = now_ms;
                         } else {
+                            if start_ms == 0 {
+                                continue;
+                            }
                             if src_audio.exists() {
                                 let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
                                 fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
@@ -91,7 +96,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                                 error!("unavailable! audio: {src_audio:?}");
                             }
                         }
-                    }
+                   // }
 
                 }
             }
@@ -372,16 +377,16 @@ async fn main() -> anyhow::Result<()> {
     remove_files("dump").await?;
     let target_output = config.output.clone();
 
-    let handle = tokio::spawn(async move {
+    /*let handle = tokio::spawn(async move {
         let res = file_renamer(&target_output, "a0.mp4").await;
         match res {
             Ok(_) => {},
             Err(e) => error!("file_renamer exited with error: {}", e),
         }
-    });
+    });*/
 
     let target_output = config.output.clone();
-    let handle2 = tokio::spawn(async move {
+    let handle = tokio::spawn(async move {
         let res = file_renamer(&target_output, "v0.mp4").await;
         match res {
             Ok(_) => {},
@@ -394,7 +399,7 @@ async fn main() -> anyhow::Result<()> {
 		res = session.run() => res.context("session error")?,
 		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?,
 		res = handle => res.context("renamer audio error")?,
-		res = handle2 => res.context("renamer video error")?,
+		//res = handle2 => res.context("renamer video error")?,
 	}
     error!("exiting");
 
