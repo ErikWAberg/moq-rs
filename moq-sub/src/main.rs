@@ -56,8 +56,6 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                 let file_name = file_name.to_str().unwrap();
 
 
-
-
                 let parts: Vec<&str> = file_name.split('-').collect();
                 let file_suffix = parts[1];
 
@@ -65,23 +63,22 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                 // 17-v0.mp4
 
 
-
                 if parts.len() == 2 && !file_suffix.ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
-                    if start_ms == 0 {
-                        fs::create_dir_all(target)?;
-                        start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-                        start_sec = start_ms as f64 / 1000.0;
-                        start = ((start_sec * 10.0).round() * 100.0) as u64 + 3200;
-                        info!("first seen segment: {}, start: {}", segment_no, start);
-                    }
 
                     let src_segment = src_dir.join(file_name);
 
                     // file_suffix = a0.mp4 or v0.mp4
 
                     if file_suffix == "v0.mp4" {
+                        if start_ms == 0 {
+                            fs::create_dir_all(target)?;
+                            start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+                            start_sec = start_ms as f64 / 1000.0;
+                            start = ((start_sec * 10.0).round() * 100.0) as u64 + 3200;
+                            info!("first seen segment: {}, start: {}", segment_no, start);
+                        }
                         // we got notified that a video segment was written
                         info!("We got notified for a video segment: {}", segment_no);
 
@@ -91,6 +88,10 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         fs::remove_file(&src_segment).expect("remove video failed");
                         info!("copied video: {dst_video:?}");
                     } else {
+                        if (start_ms == 0) {
+                            info!("Skipping move of audio segment {} since first video segment has not yet been seen", segment_no);
+                            continue;
+                        }
                         // we got notified that a audio segment was written
                         info!("We got notified for a audio segment: {}", segment_no);
 
