@@ -64,27 +64,31 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                 if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
-                    let dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
-                    let src = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
-                    let audio_src = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
+                    let dst_video = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), parts[1]).as_str()));
+                    let src_video = src_dir.join(Path::new(format!("{}-{}", segment_no, parts[1]).as_str()));
+                    let src_audio = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
 
                     fs::create_dir_all(target)?;
                     if parts[1].ends_with(filter_kind) {
                         if parts[1].ends_with("v0.mp4") {
-                            info!("parts: {parts:?} dst: {dst:?} src: {src:?} audio_src: {audio_src:?}");
+                            //info!("parts: {parts:?} dst: {dst_video:?} src: {src_video:?} src_audio: {src_audio:?}");
 
                             if prev_video_ms != 0 {
                                 let diff = now_ms - prev_video_ms;
                                 info!("duration(ms) between segments: {} ({:03})", diff, diff as f32 /3200.0);
                             }
-                            ffmpeg::change_timescale_ffmpeg(&src, &dst).await?;
-                            fs::remove_file(&src).expect("remove video failed");
+                            ffmpeg::change_timescale_ffmpeg(&src_video, &dst_video).await?;
+                            fs::remove_file(&src_video).expect("remove video failed");
+                            info!("copied video: {dst_video:?}");
                             prev_video_ms = now_ms;
                         } else {
-                            if audio_src.exists() {
-                                let audio_dst = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
-                                fs::copy(&audio_src, &audio_dst).expect("copy audio failed");
-                                fs::remove_file(&audio_src).expect("remove audio failed");
+                            if src_audio.exists() {
+                                let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                                fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
+                                fs::remove_file(&src_audio).expect("remove audio failed");
+                                info!("copied audio: {dst_audio:?}");
+                            } else {
+                                error!("unavailable! audio: {src_audio:?}");
                             }
                         }
                     }
@@ -103,6 +107,21 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 }
 
 async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
+    let ffprobe_args = [
+        "-show_format",
+        "-show_entries",
+        //"stream=Opus",
+        "-"
+    ].map(|s| s.to_string()).to_vec();
+    let mut ffprobe = Command::new("ffprobe")
+        .args(&ffprobe_args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::inherit())
+        .spawn()
+        .context("failed to spawn ffmpeg process 1")?;
+    let mut ffprobe_stdin = ffprobe.stdin.take().context("failed to get ffprobe stdin").unwrap();
+
     let ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
@@ -163,6 +182,8 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
+        ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
             .context("failed to get data track").unwrap();
@@ -171,15 +192,18 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
             continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
+            ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
         }
 
     });
 
     select! {
+        _ = ffprobe.wait() => {},
         _ = ffmpeg1.wait() => {},
         _ = ffmpeg2.wait() => {},
         _ = handle => {
             error!("killing ffmpeg");
+            ffprobe.kill().await?;
             ffmpeg1.kill().await?;
             ffmpeg2.kill().await?;
         },
