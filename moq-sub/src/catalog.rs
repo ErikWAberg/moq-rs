@@ -122,6 +122,7 @@ impl Track for AudioTrack {
     }
     fn ffmpeg_input_specifiers(&self) -> Vec<String> {
         [
+            "-f", "mp4",
             "-ac", self.channel_count.to_string().as_str(),
             "-ar", self.sample_rate.to_string().as_str(),
         ].map(|s| s.to_string()).to_vec()
