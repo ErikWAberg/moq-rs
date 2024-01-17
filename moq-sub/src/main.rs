@@ -147,8 +147,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .context("failed to spawn ffmpeg process 1")?;
 
     info!("ffmpeg1\n - args: {:?}\n", ffmpeg1_args.join(" "));
-    let mut ffmpeg2_args = track.ffmpeg_input_specifiers();
-    [
+    let ffmpeg2_args= [
         "-y", "-hide_banner",
         "-f", "s16le",
         "-c:a", "pcm_s16le",
@@ -163,9 +162,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-segment_time", "3.2",
         //"-loglevel", "error",
         "dump/%d-a0.mp4"
-    ].iter().for_each(|s|  {
-        ffmpeg2_args.push(s.to_string());
-    });
+    ].map(|s| s.to_string()).to_vec();
 
     let ffmpeg1_stdout: Stdio = ffmpeg1
         .stdout
@@ -276,6 +273,7 @@ async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyh
     let mut handles = FuturesUnordered::new();
 
     for track in tracks {
+        info!("received track: {track:?}");
         let subscriber = subscriber.clone();
         let handle = tokio::spawn(async move {
             if track.kind() == TrackKind::Audio {
@@ -383,14 +381,6 @@ async fn main() -> anyhow::Result<()> {
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
     let target_output = config.output.clone();
-
-    /*let handle = tokio::spawn(async move {
-        let res = file_renamer(&target_output, "a0.mp4").await;
-        match res {
-            Ok(_) => {},
-            Err(e) => error!("file_renamer exited with error: {}", e),
-        }
-    });*/
 
     let target_output = config.output.clone();
     let handle = tokio::spawn(async move {
