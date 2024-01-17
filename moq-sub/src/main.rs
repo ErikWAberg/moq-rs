@@ -148,6 +148,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-ar", "48000",
         "-f", "s16le",
         "-i", "pipe:0",
+        "-ac", "2", // produce 2 channel out
         "-f", "segment",
         "-reset_timestamps", "1",
         "-segment_time", "3.2",
