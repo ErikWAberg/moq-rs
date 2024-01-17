@@ -9,7 +9,7 @@ use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use inotify::{Inotify, WatchMask};
-use log::{error, info};
+use log::{error, info, log};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::{join, select};
@@ -145,8 +145,8 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-c:a", "aac",
         "-ac", "2",
         "-ar", "48000",
-        //"-muxdelay", "0",
-        //"-b:a", "192k",
+        "-muxdelay", "0",
+        "-b:a", "192k",
         "-reset_timestamps", "1",
         "-segment_time", "3.2",
         //"-loglevel", "error",
@@ -181,7 +181,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
-        // ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -191,17 +190,15 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
             continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-            // ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+            info!("wrote audio segment to ffmpeg stdin");
         }
     });
 
     select! {
-        //_ = ffprobe.wait() => {},
         _ = ffmpeg1.wait() => {},
         _ = ffmpeg2.wait() => {},
         _ = handle => {
             error!("killing audio ffmpeg");
-         //   ffprobe.kill().await?;
             ffmpeg1.kill().await?;
             ffmpeg2.kill().await?;
         },

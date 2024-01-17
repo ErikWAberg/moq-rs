@@ -149,20 +149,9 @@ impl Track for VideoTrack {
     }
     fn ffmpeg_args(&self, src: &str) -> Vec<String> {
         let mut args = Vec::new();
-        //args.push("-f".to_string());
-        //args.push("mp4".to_string());
-        //args.push("-r".to_string());
-        //args.push("30".to_string());
-        //args.push("-vcodec".to_string());
-        //args.push("h264".to_string());
-
         args.push("-i".to_string());
         args.push(src.to_string());
 
-        //args.push("-fflags".to_string());
-        //args.push("+genpts".to_string());
-        //args.push("-video_track_timescale".to_string()); // ignored by ffmpeg for some reason
-        //args.push("90k".to_string());
         args.push("-s:v".to_string());
         args.push(format!("{}x{}", 1280, 720));
         args.push("-r".to_string());
