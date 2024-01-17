@@ -134,10 +134,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         // "-loglevel", "error",
     ].map(|s| s.to_string()).to_vec();
 
-    track.ffmpeg_input_specifiers().iter().for_each(|s|  {
-        ffmpeg1_args.push(s.to_string());
-    });
-
     let mut ffmpeg1 = Command::new("ffmpeg")
         .args(&ffmpeg1_args)
         .stdin(Stdio::piped())
