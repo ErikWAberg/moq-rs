@@ -84,6 +84,7 @@ pub trait Track: std::fmt::Debug + Send {
     fn data_track(&self) -> String;
 
     fn ffmpeg_args(&self, src: &str) -> Vec<String>;
+    fn ffmpeg_input_specifiers(&self) -> Vec<String>;
 }
 
 impl Track for AudioTrack {
@@ -118,6 +119,12 @@ impl Track for AudioTrack {
         args.push("-b:a".to_string());
         args.push("192k".to_string());
         args
+    }
+    fn ffmpeg_input_specifiers(&self) -> Vec<String> {
+        [
+            "-ac", self.channel_count.to_string().as_str(),
+            "-ar", self.sample_rate.to_string().as_str(),
+        ].map(|s| s.to_string()).to_vec()
     }
 }
 
@@ -189,6 +196,10 @@ impl Track for VideoTrack {
         args.push("-sc_threshold".to_string());
         args.push("0".to_string());
 
+        args
+    }
+    fn ffmpeg_input_specifiers(&self) -> Vec<String> {
+        let  args = Vec::new();
         args
     }
 }

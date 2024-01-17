@@ -119,30 +119,19 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 }
 
 async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
-    /*let ffprobe_args = [
-        "-show_format",
-        "-show_entries",
-        //"stream=Opus",
-        "-"
-    ].map(|s| s.to_string()).to_vec();
-    let mut ffprobe = Command::new("ffprobe")
-        .args(&ffprobe_args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .spawn()
-        .context("failed to spawn ffmpeg process 1")?;
-    let mut ffprobe_stdin = ffprobe.stdin.take().context("failed to get ffprobe stdin").unwrap();
-    */
 
-    let ffmpeg1_args = [
+    let mut ffmpeg1_args = track.ffmpeg_input_specifiers();
+
+    [
         "-y", "-hide_banner",
         "-i", "pipe:0",
         "-c:a", "pcm_s16le",
         "-f", "s16le",
         // "-loglevel", "error",
         "-",
-    ].map(|s| s.to_string()).to_vec();
+    ].iter().for_each(|s|  {
+        ffmpeg1_args.push(s.to_string());
+    });
 
     let mut ffmpeg1 = Command::new("ffmpeg")
         .args(&ffmpeg1_args)
@@ -156,7 +145,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
 
     let ffmpeg2_args = [
         "-y", "-hide_banner",
-        //"-ac", "2", // when phone, mono - let ffmpeg guess channels?
         "-ar", "48000",
         "-f", "s16le",
         "-i", "pipe:0",
