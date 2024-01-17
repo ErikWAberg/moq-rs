@@ -86,8 +86,8 @@ impl Client {
         Ok(())
     }
 
-    pub async fn create(&mut self, channel: &str, title_svt_id: &str, duration: usize) -> Result<String, ApiError> {
-        let create_req = self.create_req(channel.to_string(), title_svt_id, duration);
+    pub async fn create(&mut self, channel: &str, title_svt_id: &str, duration: usize, delay: u32) -> Result<String, ApiError> {
+        let create_req = self.create_req(channel.to_string(), title_svt_id, duration, delay);
         let url = self.url.join("create2")?;
         let rsp = self.client.post(url)
             .json(&create_req)
@@ -101,7 +101,7 @@ impl Client {
         Ok(resource)
     }
 
-    fn create_req(&mut self, channel: String, title_svt_id: &str, duration: usize) -> CreateRequest {
+    fn create_req(&mut self, channel: String, title_svt_id: &str, duration: usize, delay: u32) -> CreateRequest {
         //println!("create new episode - self.created: {} (prev: {})", self.episodes_created, self.episodes_offset + self.episodes_created);
         let mut rng = rand::thread_rng();
         self.episodes_offset = rng.gen_range(1..=900); // we clone this client every time..
@@ -113,12 +113,12 @@ impl Client {
             title_svt_id: title_svt_id.to_string(),
             program_id: DEFAULT_PROGRAM_ID,
             episode,
-            start_delay_seconds: 0,
+            start_delay_seconds: delay,
             duration,
             encrypted: false,
             sign_interpreted: false,
             audio_described: false,
-            start: false
+            start: true
         }
     }
 }

@@ -148,36 +148,18 @@ impl Session {
 			let fake_id = path.chars().take(10).collect::<String>();
 			info!("creating episode: {}", fake_id);
 
-			//TODO duration!
-			let res = vompc.create("GLAS_TILL_GLAS", fake_id.as_str(), 3600).await;
-			let mut vompc = vompc.clone();
-
-			// tokio sleep
-			let tok: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-
-				match res {
-					Ok(resource) => {info!("created resource: {resource}");}
-					Err(error) => {
-						error!("failed to create episode: {:?}", error);
-						return Ok(()) // not OK but idk how to return err
-					}
+			let delay = 0;
+			let res = vompc.create("GLAS_TILL_GLAS", fake_id.as_str(), 3600, delay).await;
+			match res {
+				Ok(resource) => {info!("created resource: {resource}");}
+				Err(error) => {
+					error!("failed to create episode: {:?}", error);
+					return Ok(()) // not OK but idk how to return err
 				}
-				println!("sleeping a bit");
-				tokio::time::sleep(tokio::time::Duration::from_secs(100)).await;
-
-				let res = vompc.start_auto().await;
-				match res {
-					Ok(_) => {}
-					Err(error) => {
-						error!("failed to start episode: {:?}", error);
-					}
-				}
-				Ok(())
-			});
-
+			}
 			//TODO send id/pevi to client
-
 		}
+		
 		let mut sigterm = signal(SignalKind::terminate()).unwrap();
 		let mut sigint = signal(SignalKind::interrupt()).unwrap();
 		let res = select! {

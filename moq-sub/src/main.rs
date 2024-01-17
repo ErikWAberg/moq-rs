@@ -143,13 +143,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-ac", "2",
         "-ar", "48000",
         "-i", "pipe:0",
-        "-f", "segment",
         "-c:a", "aac",
         "-ac", "2",
         "-ar", "48000",
         "-muxdelay", "0",
         "-b:a", "192k",
-        "-reset_timestamps", "1",
+        "-f", "segment",
+        //"-reset_timestamps", "1",
         "-segment_time", "3.2",
         //"-loglevel", "error",
         "dump/%d-a0.mp4"
@@ -162,7 +162,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .try_into()
         .expect("failed to convert to Stdio");
 
-
     let log = StdFile::create("dump/ffmpeg2.log").expect("unable to create log file");
     let mut ffmpeg2 = Command::new("ffmpeg")
         .args(&ffmpeg2_args)
@@ -174,20 +173,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
     info!("ffmpeg2\n - args: {:?}\n", ffmpeg2_args.join(" "));
     let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg1 stdin").unwrap();
 
-
-
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
             .get_track(track.init_track().as_str())
             .context("failed to get init track").unwrap();
 
-        info!("fetching audio track data");
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
-        info!("got init track audio");
-        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
-        info!("wrote init track audio segment to ffmpeg stdin");
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -196,8 +188,6 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         loop {
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-            info!("wrote audio segment to ffmpeg stdin");
         }
     });
 
