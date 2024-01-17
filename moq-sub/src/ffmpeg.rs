@@ -2,28 +2,59 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 use anyhow::{Context, Error};
+use tokio::join;
 use tokio::process::{Child, Command};
+
+use tracing_subscriber::fmt::format;
 
 use crate::catalog::Track;
 
-pub fn timescale_fix(src: &PathBuf, dst: &PathBuf) -> Result<Child, Error> {
-	let  args = [
-		"-y", "-hide_banner",
-		"-i", src.to_str().unwrap(),
-		"-video_track_timescale", "90000",
-		"-c", "copy",
-		dst.to_str().unwrap()
+//ffmpeg -i ../dump/audio-continuous.mp4 -c:a pcm_s16le -f s16le -ac 2 out.pcm
+//ffmpeg -f s16le -ac 2 -ar 48000 -i out.pcm -f segment -segment_time 3.2 audio_%03d.mp4
+
+
+pub fn change_timescale(src: &PathBuf, dst: &PathBuf, ext: &str) -> Result<Child, Error> {
+	//MP4Box   -add "211-a0.mp4:timescale=90000"  ../211-a0-2.mp4
+	let src = src.to_str().unwrap();
+	let mut  args = [
+		"-add", format!("{src}{ext}:timescale=90000").as_str(),
+		dst.to_str().unwrap(),
 	].map(|s| s.to_string()).to_vec();
 
-	let ffmpeg = Command::new("ffmpeg")
+	println!("MP4Box args: {:?}", args.join(" "));
+
+	let mp4box = Command::new("MP4Box")
 		.args(&args)
-		.stdin(Stdio::piped())
 		.stdout(Stdio::inherit())
 		.stderr(Stdio::inherit())
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
 
-	Ok(ffmpeg)
+	Ok(mp4box)
+}
+
+pub async fn change_timescale_ffmpeg(src: &PathBuf, dst: &PathBuf) -> Result<(), Error> {
+	let mut  args = [
+		"-y", "-hide_banner",
+		"-i", src.to_str().unwrap(),
+		"-c", "copy",
+		"-loglevel", "error",
+		"-reset_timestamps", "1",
+		"-video_track_timescale", "90000",
+
+	].map(|s| s.to_string()).to_vec();
+
+	args.push(format!("{}", dst.to_str().unwrap()));
+
+	let mut ffmpeg = Command::new("ffmpeg")
+		.args(&args)
+		.stdout(Stdio::null())
+		.stderr(Stdio::null())
+		.spawn()
+		.context("failed to spawn ffmpeg process")?;
+	let x = ffmpeg.wait();
+	x.await.context("failed to wait for ffmpeg process")?;
+	Ok(())
 }
 
 pub fn spawn(args: Vec<String>) -> Result<Child, Error> {
@@ -47,13 +78,13 @@ pub fn args(track: &dyn Track) -> Vec<String> {
 
 	let mut args = [
 		"-y", "-hide_banner",
+		"-loglevel", "error",
 	].map(|s| s.to_string()).to_vec();
 
 	let mut post_args = [
 		"-muxdelay", "0",
 		"-f", "segment",
 		"-segment_time", "3.2",
-		//"-seg_duration", "3.2",
 		"-break_non_keyframes", "1",
 	].map(|s| s.to_string()).to_vec();
 

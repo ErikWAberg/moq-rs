@@ -20,7 +20,8 @@ struct CreateRequest {
     duration: usize,
     encrypted: bool,
     sign_interpreted: bool,
-    audio_described: bool
+    audio_described: bool,
+    start: bool
 }
 
 const DEFAULT_PROGRAM_ID: u32 = 9123400;
@@ -38,16 +39,16 @@ pub struct Client {
 impl Client {
     pub fn new(url: Url) -> Self {
         let client = reqwest::Client::new();
-        let mut rng = rand::thread_rng();
-        Self { url, client, episodes_offset: rng.gen_range(1..=900), episodes_created: 0}
+
+        Self { url, client, episodes_offset: 0, episodes_created: 0}
     }
     pub fn new_with_offset(url: Url, episodes_offset: u32) -> Self {
         let client = reqwest::Client::new();
         Self { url, client, episodes_offset, episodes_created: 0 }
     }
 
-    pub async fn start(&mut self, episode_version_id: &str) -> Result<(), ApiError> {
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
+    pub async fn start(&mut self, episode_number: &str) -> Result<(), ApiError> {
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/start");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
@@ -55,32 +56,33 @@ impl Client {
     }
 
     pub async fn start_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/start");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/start");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
-        println!("vompc start response {:?}", rsp);
+        rsp.error_for_status()?;
+        println!("VOMPC -- started: {dst}");
         Ok(())
     }
 
     pub async fn stop_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/stop");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/stop");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
-        println!("stopped vompc: {dst}");
+        println!("VOMPC -- stopped: {dst}");
         Ok(())
     }
 
     pub async fn delete_auto(&mut self) -> Result<(), ApiError> {
-        let episode_version_id = self.episodes_offset + self.episodes_created;
-        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_version_id}/delete");
+        let episode_number = self.episodes_offset + self.episodes_created;
+        let dst = format!("{DEFAULT_PROGRAM_ID_STR}/{episode_number:03}A/delete");
         let url = self.url.join(dst.as_str())?;
         let rsp = self.client.get(url).query(&[("channel", "GLAS_TILL_GLAS")]).send().await?;
         rsp.error_for_status()?;
 
-        println!("deleted vompc: {dst}");
+        println!("VOMPC -- deleted: {dst}");
         Ok(())
     }
 
@@ -94,14 +96,18 @@ impl Client {
             .text()
             .await?;
         let resource = format!("{DEFAULT_PROGRAM_ID}/{}", self.episodes_offset + self.episodes_created);
-        println!("created vompc: {:?}", create_req);
+        println!("VOMPC -- created: {rsp:?} - {create_req:?} - ");
 
         Ok(resource)
     }
 
     fn create_req(&mut self, channel: String, title_svt_id: &str, duration: usize) -> CreateRequest {
+        //println!("create new episode - self.created: {} (prev: {})", self.episodes_created, self.episodes_offset + self.episodes_created);
+        let mut rng = rand::thread_rng();
+        self.episodes_offset = rng.gen_range(1..=900); // we clone this client every time..
         self.episodes_created += 1;
         let episode = self.episodes_offset + self.episodes_created;
+        //println!("create new episode - self.created: {} (new: {})", self.episodes_created, episode);
         CreateRequest {
             channel,
             title_svt_id: title_svt_id.to_string(),
@@ -111,7 +117,8 @@ impl Client {
             duration,
             encrypted: false,
             sign_interpreted: false,
-            audio_described: false
+            audio_described: false,
+            start: true
         }
     }
 }

@@ -1,3 +1,4 @@
+FROM harbor.support.aurora.svt.se/dist/mp4box:36e77689 as mp4box
 FROM rust:bookworm as builder
 
 # Create a build directory and copy over all of the files
@@ -17,7 +18,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 FROM debian:bookworm-slim
 
 RUN apt-get update && \
-	apt-get install -y --no-install-recommends ca-certificates curl libssl3 ffmpeg && \
+	apt-get install -y --no-install-recommends ca-certificates curl libssl3 ffmpeg procps && \
 	rm -rf /var/lib/apt/lists/*
 
 LABEL org.opencontainers.image.source=https://github.com/kixelated/moq-rs
@@ -28,6 +29,6 @@ COPY --from=builder /usr/local/cargo/bin/moq-* /usr/local/bin
 # Entrypoint to load relay TLS config in Fly
 # TODO remove this; it should be specific to the fly deployment.
 COPY deploy/fly-relay.sh .
-
+COPY --from=mp4box /usr/bin/MP4Box /usr/bin/MP4Box
 # Default to moq-relay
 CMD ["moq-relay"]
