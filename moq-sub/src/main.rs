@@ -125,7 +125,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-"
         // "-loglevel", "error",
     ].map(|s| s.to_string()).to_vec();
-    let log = StdFile::create("dump/ffmpeg2.log").expect("unable to create log file");
+    let log = StdFile::create("dump/ffmpeg1.log").expect("unable to create log file");
     let mut ffmpeg1 = Command::new("ffmpeg")
         .args(&ffmpeg1_args)
         .stdin(Stdio::piped())
