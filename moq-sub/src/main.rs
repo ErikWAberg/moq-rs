@@ -130,8 +130,8 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-c:a", "pcm_s16le",
         "-ac", "2",
         "-ar", "48000",
+        "-"
         // "-loglevel", "error",
-
     ].map(|s| s.to_string()).to_vec();
 
     track.ffmpeg_input_specifiers().iter().for_each(|s|  {
@@ -214,17 +214,18 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         _ = ffmpeg1.wait() => {},
         _ = ffmpeg2.wait() => {},
         _ = handle => {
-            error!("killing ffmpeg");
+            error!("killing audio ffmpeg");
          //   ffprobe.kill().await?;
             ffmpeg1.kill().await?;
             ffmpeg2.kill().await?;
         },
     }
-    info!("done with track");
+    info!("done with audio track");
     Ok(())
 }
 
-async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
+
+async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
     let ffmpeg_args = ffmpeg::args(track.deref());
     let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
     let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
@@ -258,11 +259,11 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyh
     select! {
         _ = ffmpeg.wait() => {},
         _ = handle => {
-            error!("killing ffmpeg");
+            error!("killing video ffmpeg");
             ffmpeg.kill().await?;
         },
     }
-    info!("done with track");
+    info!("done with video track");
     Ok(())
 }
 
@@ -280,7 +281,7 @@ async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyh
             if track.kind() == TrackKind::Audio {
                 track_subscriber_audio(track, subscriber).await.unwrap()
             } else {
-                track_subscriber(track, subscriber).await.unwrap()
+                video_track_subscriber(track, subscriber).await.unwrap()
             }
         });
         handles.push(handle);
