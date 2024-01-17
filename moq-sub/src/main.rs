@@ -31,22 +31,20 @@ mod ffmpeg;
 async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
-    let mut start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-    let mut start_sec = start_ms as f64 / 1000.0;
-    let mut start = ((start_sec * 10.0).round() * 100.0) as u64;
+    let mut start_ms = 0;
+    let mut start_sec = 0.0;
+    let mut start = 0;
     start_ms = 0;
-	let mut inotify = Inotify::init()
-		.expect("Error while initializing inotify instance");
+    let mut inotify = Inotify::init()
+        .expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
     let local_target = Path::new("/dump/encoder");
 
     fs::create_dir_all(local_target)?;
 
-	inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
+    inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
 
-    let mut first_video_seg_no = 0;
-    let mut current_video_seg_no = 0;
     loop {
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
@@ -54,53 +52,59 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
 
         for event in events {
             if let Some(file_name) = event.name {
-
+                info!("got inotify event for file_name: {:?}", file_name);
                 let file_name = file_name.to_str().unwrap();
 
+
+
+
                 let parts: Vec<&str> = file_name.split('-').collect();
-                if parts.len() == 2 && !parts[1].ends_with("continuous.mp4") {
+                let file_suffix = parts[1];
+
+                // 17-a0.mp4
+                // 17-v0.mp4
+
+
+
+                if parts.len() == 2 && !file_suffix.ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
-//TODO this is broken
-                    fs::create_dir_all(target)?;
 
-                    if parts[1].ends_with("v0.mp4") {
-                        if start_ms == 0 {
-                            start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
-                            start_sec = start_ms as f64 / 1000.0;
-                            start = ((start_sec * 10.0).round() * 100.0) as u64;
-                            first_video_seg_no = segment_no;
-                            info!("first video segment: {}, time_ms: {}", segment_no, start_ms);
-                        }
-                        current_video_seg_no = segment_no;
-
-                        let dst_video = target.join(Path::new(format!("{}-{}", segment_timestamp(start, current_video_seg_no), parts[1]).as_str()));
-                        let src_video = src_dir.join(Path::new(format!("{}-{}", current_video_seg_no, parts[1]).as_str()));
-
-                        ffmpeg::change_timescale_ffmpeg(&src_video, &dst_video).await?;
-                        fs::remove_file(&src_video).expect("remove video failed");
-                        info!("copied video: {dst_video:?}");
-                    } else {
-
-                        if segment_no == current_video_seg_no {
-                            info!("skipping audio segment {}, startms: {}", segment_no, start_ms);
-                            continue;
-                        }
-                        let src_audio = src_dir.join(Path::new(format!("{}-{}", current_video_seg_no, "a0.mp4").as_str()));
-
-                        if src_audio.exists() {
-                            let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, current_video_seg_no), "a0.mp4").as_str()));
-                            fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
-                            fs::remove_file(&src_audio).expect("remove audio failed");
-                            info!("copied audio: {dst_audio:?}");
-                        } else {
-                            error!("unavailable! audio: {src_audio:?}");
-                        }
+                    if start_ms == 0 {
+                        fs::create_dir_all(target)?;
+                        start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
+                        start_sec = start_ms as f64 / 1000.0;
+                        start = ((start_sec * 10.0).round() * 100.0) as u64;
+                        info!("first seen segment: {}, time_ms: {}", segment_no, start_ms);
                     }
 
+                    let src_segment = src_dir.join(file_name);
+
+                    // file_suffix = a0.mp4 or v0.mp4
+
+                    if file_suffix == "v0.mp4" {
+                        // we got notified that a video segment was written
+                        info!("We got notified for a video segment: {}", segment_no);
+
+                        let dst_video = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), file_suffix).as_str()));
+
+                        ffmpeg::change_timescale_ffmpeg(&src_segment, &dst_video).await?;
+                        fs::remove_file(&src_segment).expect("remove video failed");
+                        info!("copied video: {dst_video:?}");
+                    } else {
+                        // we got notified that a audio segment was written
+                        info!("We got notified for a audio segment: {}", segment_no);
+
+                        let src_audio = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
+                        let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                        fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
+                        fs::remove_file(&src_audio).expect("remove audio failed");
+                        info!("copied audio: {dst_audio:?}");
+                    }
+                } else {
+                    info!("ignoring event for file: {:?}", file_name);
                 }
             }
         }
-
     }
 }
 
@@ -132,7 +136,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-i", "pipe:0",
         "-c:a", "pcm_s16le",
         "-f", "s16le",
-       // "-loglevel", "error",
+        // "-loglevel", "error",
         "-",
     ].map(|s| s.to_string()).to_vec();
 
@@ -188,7 +192,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
-       // ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+        // ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -198,9 +202,8 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
             continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-           // ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+            // ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
         }
-
     });
 
     select! {
@@ -217,6 +220,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
     info!("done with track");
     Ok(())
 }
+
 async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
     let ffmpeg_args = ffmpeg::args(track.deref());
     let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
@@ -244,7 +248,6 @@ async fn track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -> anyh
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
             continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
         }
-
     });
 
     //TODO how do we prevent ffmpeg from becoming a zombie when session is terminated
@@ -284,6 +287,7 @@ async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyh
 	}
     Ok(())
 }
+
 async fn remove_files(path: &str) -> anyhow::Result<()> {
     if !Path::new(path).exists() {
         println!("path does not exist {path}");
@@ -388,7 +392,7 @@ async fn main() -> anyhow::Result<()> {
     let handle = tokio::spawn(async move {
         let res = file_renamer(&target_output, "v0.mp4").await;
         match res {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => error!("file_renamer exited with error: {}", e),
         }
     });
