@@ -46,6 +46,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
         .expect("Failed to add file watch");
 
     let mut prev_video_ms = 0u64;
+    let mut first_video_seg_no = 0;
     loop {
         let mut buffer = [0; 1024];
         let events = inotify.read_events_blocking(&mut buffer)
@@ -72,6 +73,8 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                                 start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
                                 start_sec = start_ms as f64 / 1000.0;
                                 start = ((start_sec * 10.0).round() * 100.0) as u64;
+                                first_video_seg_no = segment_no;
+                                info!("first video segment: {}, time_ms: {}", segment_no, start_ms);
                             }
                             //info!("parts: {parts:?} dst: {dst_video:?} src: {src_video:?} src_audio: {src_audio:?}");
 
@@ -84,7 +87,8 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                             info!("copied video: {dst_video:?}");
                             prev_video_ms = now_ms;
                         } else {
-                            if start_ms == 0 {
+                            if start_ms == 0 || first_video_seg_no == 0 || segment_no < first_video_seg_no {
+                                info!("skipping audio segment {}, startms: {}", segment_no, start_ms);
                                 continue;
                             }
                             if src_audio.exists() {
