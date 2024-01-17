@@ -73,8 +73,8 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         fs::create_dir_all(target)?;
                         start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
                         start_sec = start_ms as f64 / 1000.0;
-                        start = ((start_sec * 10.0).round() * 100.0) as u64;
-                        info!("first seen segment: {}, time_ms: {}", segment_no, start_ms);
+                        start = ((start_sec * 10.0).round() * 100.0) as u64 + 3200;
+                        info!("first seen segment: {}, start: {}", segment_no, start);
                     }
 
                     let src_segment = src_dir.join(file_name);
