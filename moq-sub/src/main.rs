@@ -146,10 +146,10 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-c:a", "aac",
         "-ac", "2",
         "-ar", "48000",
-        "-muxdelay", "0",
-        "-b:a", "192k",
+        //"-muxdelay", "0",
+        //"-b:a", "192k",
         "-f", "segment",
-        //"-reset_timestamps", "1",
+        "-reset_timestamps", "1",
         "-segment_time", "3.2",
         //"-loglevel", "error",
         "dump/%d-a0.mp4"
