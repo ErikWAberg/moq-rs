@@ -1,4 +1,5 @@
 use std::{fs, io, sync::Arc, time};
+use std::fs::File as StdFile;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -11,7 +12,7 @@ use futures::StreamExt;
 use inotify::{Inotify, WatchMask};
 use log::{error, info, log};
 use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::{join, select};
 use tokio::fs as TokioFs;
 use tokio::process::Command;
@@ -124,12 +125,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-"
         // "-loglevel", "error",
     ].map(|s| s.to_string()).to_vec();
-
+    let log = StdFile::create("dump/ffmpeg2.log").expect("unable to create log file");
     let mut ffmpeg1 = Command::new("ffmpeg")
         .args(&ffmpeg1_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        //.stderr(Stdio::inherit())
+        .stderr(Stdio::from(log))
         .spawn()
         .context("failed to spawn ffmpeg process 1")?;
 
@@ -160,15 +162,19 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .try_into()
         .expect("failed to convert to Stdio");
 
+
+    let log = StdFile::create("dump/ffmpeg2.log").expect("unable to create log file");
     let mut ffmpeg2 = Command::new("ffmpeg")
         .args(&ffmpeg2_args)
         .stdin(ffmpeg1_stdout)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::from(log))
         .spawn()
         .context("failed to spawn ffmpeg process 2")?;
     info!("ffmpeg2\n - args: {:?}\n", ffmpeg2_args.join(" "));
     let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg1 stdin").unwrap();
+
+
 
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
