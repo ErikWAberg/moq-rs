@@ -95,7 +95,7 @@ impl Session {
 
 		if let Some(output) = self.subscriber_output.clone() {
 			let path = path.to_string();
-			let handle = tokio::spawn(async move {
+
 				let url = format!("https://localhost/{path}");
 				let args = [
 					"--output", output.to_str().unwrap(),
@@ -104,25 +104,25 @@ impl Session {
 				].map(|s| s.to_string()).to_vec();
 				info!("starting subscriber: {:?}", args.join(" "));
 
-				let child = Command::new("moq-sub")
+				let mut child = Command::new("moq-sub")
 					.env("RUST_LOG", "INFO")
 					.args(&args)
 					.stdout(Stdio::inherit())
 					.stderr(Stdio::inherit())
-					//.stdout(Stdio::piped())
-					//.stderr(Stdio::piped())
 					.kill_on_drop(true)
 					.spawn()
 					.context("failed to spawn subscriber process").unwrap();
 				info!("created subscriber");
 
+			/*let handle = tokio::spawn(async move {
 				child.wait_with_output().await
-			});
+			});*/
 
 			tokio::select! {
 				_ = session.run() => origin.close().await?,
 				_ = origin.run() => (), // TODO send error to session
-				output = handle => {
+				_ = child.wait() => (),
+				/*output = handle => {
 					let output = output.unwrap();
 					if let Ok(output) = output {
 						info!("subscriber exited with: {}", output.status);
@@ -131,9 +131,11 @@ impl Session {
 					} else {
 						error!("failed to wait for subscriber: {}", output.unwrap_err());
 					}
-				}
+				}*/
 			}
 			error!("exiting publisher loop");
+			let res = child.kill().await;
+			info!("attempt to kill subscriber: {res:?}");
 		}
 
 		Ok(())
@@ -162,6 +164,8 @@ impl Session {
 					return Ok(()) // not OK but idk how to return err
 				}
 			}
+
+			//TODO send id/pevi to client
 
 		}
 
