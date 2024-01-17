@@ -96,7 +96,7 @@ impl Client {
             .text()
             .await?;
         let resource = format!("{DEFAULT_PROGRAM_ID}/{}", self.episodes_offset + self.episodes_created);
-        println!("VOMPC -- created: {rsp:?} - {create_req:?} - ");
+        println!("VOMPC -- created: {rsp:?} - {create_req:?} - {resource}");
 
         Ok(resource)
     }
@@ -118,7 +118,7 @@ impl Client {
             encrypted: false,
             sign_interpreted: false,
             audio_described: false,
-            start: true
+            start: false
         }
     }
 }

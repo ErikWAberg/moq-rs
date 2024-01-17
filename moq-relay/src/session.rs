@@ -3,9 +3,12 @@ use std::process::Stdio;
 use anyhow::Context;
 use log::{error, info};
 use tokio::process::Command;
+use tokio::{select, signal};
+use tokio::task::JoinHandle;
 use moq_api::ApiError;
 
 use moq_transport::{session::Request, setup::Role, MoqError};
+use vompc_api::Client;
 
 use crate::Origin;
 
@@ -114,24 +117,12 @@ impl Session {
 					.context("failed to spawn subscriber process").unwrap();
 				info!("created subscriber");
 
-			/*let handle = tokio::spawn(async move {
-				child.wait_with_output().await
-			});*/
 
 			tokio::select! {
 				_ = session.run() => origin.close().await?,
 				_ = origin.run() => (), // TODO send error to session
 				_ = child.wait() => (),
-				/*output = handle => {
-					let output = output.unwrap();
-					if let Ok(output) = output {
-						info!("subscriber exited with: {}", output.status);
-						info!("subscriber stdout: {}", String::from_utf8_lossy(&output.stdout));
-						info!("subscriber stderr: {}", String::from_utf8_lossy(&output.stderr));
-					} else {
-						error!("failed to wait for subscriber: {}", output.unwrap_err());
-					}
-				}*/
+
 			}
 			error!("exiting publisher loop");
 			let res = child.kill().await;
@@ -151,30 +142,64 @@ impl Session {
 		//TODO  should we do vompc in separate thread maybe
 
 		let mut vompc = self.origin.vompc();
+
 		if let Some(vompc) = vompc.as_mut() {
 			let fake_id = path.chars().take(10).collect::<String>();
 			info!("creating episode: {}", fake_id);
 
 			//TODO duration!
 			let res = vompc.create("GLAS_TILL_GLAS", fake_id.as_str(), 3600).await;
-			match res {
-				Ok(resource) => {info!("created resource: {resource}");}
-				Err(error) => {
-					error!("failed to create episode: {:?}", error);
-					return Ok(()) // not OK but idk how to return err
+			let mut vompc = vompc.clone();
+
+			// tokio sleep
+			let tok: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
+
+				match res {
+					Ok(resource) => {info!("created resource: {resource}");}
+					Err(error) => {
+						error!("failed to create episode: {:?}", error);
+						return Ok(()) // not OK but idk how to return err
+					}
 				}
-			}
+				println!("sleeping a bit");
+				tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+
+				let res = vompc.start_auto().await;
+				match res {
+					Ok(_) => {}
+					Err(error) => {
+						error!("failed to start episode: {:?}", error);
+					}
+				}
+				Ok(())
+			});
 
 			//TODO send id/pevi to client
 
 		}
 
+		let res = select! {
+			_ = session.run() => None,
+			_ = signal::ctrl_c() =>  {
+				error!("stopping vompc due to ctrl-c");
+				Self::vompc_stop(path, &mut vompc).await?;
+				Some(())
+			}
+		};
+		error!("exiting subscriber loop");
 
-		session.run().await?;
+		if let None = res {
+			error!("stopping vompc after subscriber loop");
+			Self::vompc_stop(path, &mut vompc).await?;
+		}
 
 		// Make sure this doesn't get dropped too early
 		drop(subscriber);
 
+		Ok(())
+	}
+
+	async fn vompc_stop(path: &str, vompc: &mut Option<Client>) -> anyhow::Result<()> {
 		if let Some(vompc) = vompc.as_mut() {
 			info!("deleting episode: {}", path);
 			let res = vompc.delete_auto().await;
@@ -183,8 +208,6 @@ impl Session {
 				return Ok(()) // not OK but idk how to return err
 			}
 		}
-
-
 		Ok(())
 	}
 }
