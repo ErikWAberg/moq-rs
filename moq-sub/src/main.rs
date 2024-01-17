@@ -88,7 +88,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         fs::remove_file(&src_segment).expect("remove video failed");
                         info!("copied video: {dst_video:?}");
                     } else {
-                        if (start_ms == 0) {
+                        if start_ms == 0 {
                             info!("Skipping move of audio segment {} since first video segment has not yet been seen", segment_no);
                             continue;
                         }
