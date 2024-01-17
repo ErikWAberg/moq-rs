@@ -39,7 +39,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
         .expect("Error while initializing inotify instance");
     let src_dir = Path::new("/dump");
     let local_target = Path::new("/dump/encoder");
-
+    let mut skipped_audio_segments = 0;
     fs::create_dir_all(local_target)?;
 
     inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
@@ -76,7 +76,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                             fs::create_dir_all(target)?;
                             start_ms = (Utc::now().timestamp_millis() + ntp_epoch_offset.num_milliseconds()) as u64;
                             start_sec = start_ms as f64 / 1000.0;
-                            start = ((start_sec * 10.0).round() * 100.0) as u64 + 3200;
+                            start = ((start_sec * 10.0).round() * 100.0) as u64;
                             info!("first seen segment: {}, start: {}", segment_no, start);
                         }
                         // we got notified that a video segment was written
@@ -89,14 +89,15 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         info!("copied video: {dst_video:?}");
                     } else {
                         if start_ms == 0 {
-                            info!("Skipping move of audio segment {} since first video segment has not yet been seen", segment_no);
+                            skipped_audio_segments += 1;
+                            info!("Skipping move of audio segment {} since first video segment has not yet been seen. skipped: {}", segment_no, skipped_audio_segments);
                             continue;
                         }
                         // we got notified that a audio segment was written
                         info!("We got notified for a audio segment: {}", segment_no);
 
                         let src_audio = src_dir.join(Path::new(format!("{}-{}", segment_no, "a0.mp4").as_str()));
-                        let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), "a0.mp4").as_str()));
+                        let dst_audio = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no - skipped_audio_segments), "a0.mp4").as_str()));
                         fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
                         fs::remove_file(&src_audio).expect("remove audio failed");
                         info!("copied audio: {dst_audio:?}");
