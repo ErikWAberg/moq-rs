@@ -120,15 +120,21 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 
 async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
 
-    let mut ffmpeg1_args = track.ffmpeg_input_specifiers();
-    [
+    // ffmpeg1: -f mp4 -i pipe:0 -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -
+    // ffmpeg2:                  -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -i pipe:0 -ac 2 -ar 48000 -f segment ..
+
+    let mut ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
-        "-c:a", "pcm_s16le",
         "-f", "s16le",
+        "-c:a", "pcm_s16le",
+        "-ac", "2",
+        "-ar", "48000",
         // "-loglevel", "error",
-        "-",
-    ].iter().for_each(|s|  {
+
+    ].map(|s| s.to_string()).to_vec();
+
+    track.ffmpeg_input_specifiers().iter().for_each(|s|  {
         ffmpeg1_args.push(s.to_string());
     });
 
@@ -140,14 +146,19 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .spawn()
         .context("failed to spawn ffmpeg process 1")?;
 
-    info!("ffmpeg1 - args: {:?}", ffmpeg1_args.join(" "));
+    info!("ffmpeg1\n - args: {:?}\n", ffmpeg1_args.join(" "));
     let mut ffmpeg2_args = track.ffmpeg_input_specifiers();
     [
         "-y", "-hide_banner",
         "-f", "s16le",
+        "-c:a", "pcm_s16le",
+        "-ac", "2",
+        "-ar", "48000",
         "-i", "pipe:0",
-        "-ac", "2", // produce 2 channel out
         "-f", "segment",
+        "-c:a", "aac",
+        "-ac", "2",
+        "-ar", "48000",
         "-reset_timestamps", "1",
         "-segment_time", "3.2",
         //"-loglevel", "error",
@@ -170,7 +181,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .stderr(Stdio::inherit())
         .spawn()
         .context("failed to spawn ffmpeg process 2")?;
-    info!("ffmpeg2 - args: {:?}", ffmpeg2_args.join(" "));
+    info!("ffmpeg2\n - args: {:?}\n", ffmpeg2_args.join(" "));
     let mut ffmpeg_stdin = ffmpeg1.stdin.take().context("failed to get ffmpeg1 stdin").unwrap();
 
     let handle = tokio::spawn(async move {
