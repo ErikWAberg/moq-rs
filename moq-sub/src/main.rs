@@ -175,12 +175,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
             .get_track(track.init_track().as_str())
             .context("failed to get init track").unwrap();
 
+        info!("fetching audio track data");
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
-
+        info!("got init track audio");
         let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
-
+        info!("wrote init track audio segment to ffmpeg stdin");
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
