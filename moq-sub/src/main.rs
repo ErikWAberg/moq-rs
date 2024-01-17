@@ -107,7 +107,7 @@ fn segment_timestamp(start: u64, segment_no: u32) -> String {
 }
 
 async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -> anyhow::Result<()> {
-    let ffprobe_args = [
+    /*let ffprobe_args = [
         "-show_format",
         "-show_entries",
         //"stream=Opus",
@@ -121,6 +121,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .spawn()
         .context("failed to spawn ffmpeg process 1")?;
     let mut ffprobe_stdin = ffprobe.stdin.take().context("failed to get ffprobe stdin").unwrap();
+    */
 
     let ffmpeg1_args = [
         "-y", "-hide_banner",
@@ -143,7 +144,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
 
     let ffmpeg2_args = [
         "-y", "-hide_banner",
-        "-ac", "2",
+        //"-ac", "2", // when phone, mono - let ffmpeg guess channels?
         "-ar", "48000",
         "-f", "s16le",
         "-i", "pipe:0",
@@ -182,7 +183,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
         continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
-        ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+       // ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -192,18 +193,18 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
             continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-            ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
+           // ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
         }
 
     });
 
     select! {
-        _ = ffprobe.wait() => {},
+        //_ = ffprobe.wait() => {},
         _ = ffmpeg1.wait() => {},
         _ = ffmpeg2.wait() => {},
         _ = handle => {
             error!("killing ffmpeg");
-            ffprobe.kill().await?;
+         //   ffprobe.kill().await?;
             ffmpeg1.kill().await?;
             ffmpeg2.kill().await?;
         },
