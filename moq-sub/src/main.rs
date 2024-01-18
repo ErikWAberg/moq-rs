@@ -342,7 +342,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("received tracks");
     let mut channel = "GLAS_TILL_GLAS";
-    for track in tracks {
+    for track in &tracks {
         if track.channel_count() == 1 {
             channel = "GLAS_TILL_GLAS_TYST";
         }
