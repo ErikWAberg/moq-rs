@@ -20,7 +20,7 @@ pub struct Origin {
 	// TODO: Stub this out instead.
 	api: Option<moq_api::Client>,
 
-	vompc_api: Option<vompc_api::Client>,
+	vompc_api: Option<Url>,
 
 	// The internal address of our node.
 	// If None then we can never advertise ourselves as an origin.
@@ -35,7 +35,7 @@ pub struct Origin {
 }
 
 impl Origin {
-	pub fn new(api: Option<moq_api::Client>, vompc_api: Option<vompc_api::Client>, node: Option<Url>, quic: quinn::Endpoint) -> Self {
+	pub fn new(api: Option<moq_api::Client>, vompc_api: Option<Url>, node: Option<Url>, quic: quinn::Endpoint) -> Self {
 		Self {
 			api,
 			vompc_api,
@@ -45,7 +45,7 @@ impl Origin {
 		}
 	}
 
-	pub fn vompc(&self) -> Option<Client> {
+	pub fn vompc(&self) -> Option<Url> {
 		self.vompc_api.clone()
 	}
 	/// Create a new broadcast with the given ID.

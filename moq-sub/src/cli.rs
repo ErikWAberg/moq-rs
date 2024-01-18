@@ -33,6 +33,9 @@ pub struct Config {
 	#[arg(long)]
 	pub output: path::PathBuf,
 
+	#[arg(long)]
+	pub vompc_url: Option<Url>,
+
 }
 
 fn moq_url(s: &str) -> Result<Url, String> {

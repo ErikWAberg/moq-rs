@@ -1267,6 +1267,7 @@ dependencies = [
  "tracing-subscriber",
  "typetag",
  "url",
+ "vompc-api",
  "webtransport-quinn",
 ]
 

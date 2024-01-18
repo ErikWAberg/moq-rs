@@ -99,24 +99,28 @@ impl Session {
 
 		if let Some(output) = self.subscriber_output.clone() {
 			let path = path.to_string();
+			let mut args = [
+				"--output", output.to_str().unwrap(),
+				"--tls-disable-verify",
 
-				let url = format!("https://localhost/{path}");
-				let args = [
-					"--output", output.to_str().unwrap(),
-					"--tls-disable-verify",
-					url.as_str(),
-				].map(|s| s.to_string()).to_vec();
-				info!("starting subscriber: {:?}", args.join(" "));
+			].map(|s| s.to_string()).to_vec();
+			if let Some(vompc_url) = self.origin.vompc() {
+				args.push("--vompc-url".to_string());
+				args.push(vompc_url.to_string());
+			}
 
-				let mut child = Command::new("moq-sub")
-					.env("RUST_LOG", "INFO")
-					.args(&args)
-					.stdout(Stdio::inherit())
-					.stderr(Stdio::inherit())
-					.kill_on_drop(true)
-					.spawn()
-					.context("failed to spawn subscriber process").unwrap();
-				info!("created subscriber");
+			args.push(format!("https://localhost/{path}"));
+			info!("starting subscriber: {:?}", args.join(" "));
+
+			let mut child = Command::new("moq-sub")
+				.env("RUST_LOG", "INFO")
+				.args(&args)
+				.stdout(Stdio::inherit())
+				.stderr(Stdio::inherit())
+				.kill_on_drop(true)
+				.spawn()
+				.context("failed to spawn subscriber process").unwrap();
+			info!("created subscriber");
 
 
 			tokio::select! {
@@ -140,47 +144,11 @@ impl Session {
 
 		let session = request.publisher(subscriber.broadcast.clone()).await?;
 
-		//TODO  should we do vompc in separate thread maybe
-
-		let mut vompc = self.origin.vompc();
-
-		if let Some(vompc) = vompc.as_mut() {
-			let fake_id = path.chars().take(10).collect::<String>();
-			info!("creating episode: {}", fake_id);
-
-			let delay = 0;
-			let res = vompc.create("GLAS_TILL_GLAS", fake_id.as_str(), 3600, delay).await;
-			match res {
-				Ok(resource) => {info!("created resource: {resource}");}
-				Err(error) => {
-					error!("failed to create episode: {:?}", error);
-					return Ok(()) // not OK but idk how to return err
-				}
-			}
-			//TODO send id/pevi to client
+	 	select! {
+			_ = session.run() => {},
 		}
-		
-		let mut sigterm = signal(SignalKind::terminate()).unwrap();
-		let mut sigint = signal(SignalKind::interrupt()).unwrap();
-		let res = select! {
-			_ = session.run() => None,
-			_ = sigint.recv() =>  {
-				error!("stopping vompc due to sigint");
-				Self::vompc_stop(path, &mut vompc).await?;
-				Some(())
-			},
-			_ = sigterm.recv() =>  {
-				error!("stopping vompc due to sigterm");
-				Self::vompc_stop(path, &mut vompc).await?;
-				Some(())
-			}
-		};
 		error!("exiting subscriber loop");
 
-		if let None = res {
-			error!("stopping vompc after subscriber loop");
-			Self::vompc_stop(path, &mut vompc).await?;
-		}
 
 		// Make sure this doesn't get dropped too early
 		drop(subscriber);
@@ -188,15 +156,4 @@ impl Session {
 		Ok(())
 	}
 
-	async fn vompc_stop(path: &str, vompc: &mut Option<Client>) -> anyhow::Result<()> {
-		if let Some(vompc) = vompc.as_mut() {
-			info!("deleting episode: {}", path);
-			let res = vompc.delete_auto().await;
-			if let Err(err) = res {
-				error!("failed to delete episode: {}", err);
-				return Ok(()) // not OK but idk how to return err
-			}
-		}
-		Ok(())
-	}
 }

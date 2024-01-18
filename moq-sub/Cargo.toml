@@ -15,6 +15,7 @@ categories = ["multimedia", "network-programming", "web-programming"]
 
 [dependencies]
 moq-transport = { path = "../moq-transport" }
+vompc-api = { path = "../vompc-api" }
 
 # QUIC
 quinn = "0.10"

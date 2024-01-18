@@ -102,12 +102,12 @@ impl Client {
     }
 
     fn create_req(&mut self, channel: String, title_svt_id: &str, duration: usize, delay: u32) -> CreateRequest {
-        //println!("create new episode - self.created: {} (prev: {})", self.episodes_created, self.episodes_offset + self.episodes_created);
+        
         let mut rng = rand::thread_rng();
         self.episodes_offset = rng.gen_range(1..=900); // we clone this client every time..
         self.episodes_created += 1;
         let episode = self.episodes_offset + self.episodes_created;
-        //println!("create new episode - self.created: {} (new: {})", self.episodes_created, episode);
+        
         CreateRequest {
             channel,
             title_svt_id: title_svt_id.to_string(),

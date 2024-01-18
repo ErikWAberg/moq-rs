@@ -16,11 +16,13 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::{join, select};
 use tokio::fs as TokioFs;
 use tokio::process::Command;
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Mutex;
 
 use cli::*;
 use moq_transport::cache::broadcast;
 use moq_transport::cache::broadcast::Subscriber;
+use vompc_api::Client;
 
 use crate::catalog::{Track, TrackKind};
 
@@ -209,8 +211,6 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
     let ffmpeg_args = ffmpeg::args(track.deref());
     let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
     let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
-    //let local_raw = Path::new("/dump/raw");
-    //fs::create_dir_all(local_raw)?;
 
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
@@ -219,9 +219,7 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
 
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
 
-        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -230,12 +228,9 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
         loop {
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
         }
     });
 
-    //TODO how do we prevent ffmpeg from becoming a zombie when session is terminated
-    //TODO why has ffmpeg transcode process become slower (transcode speed x)
     select! {
         _ = ffmpeg.wait() => {},
         _ = handle => {
@@ -244,32 +239,6 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
         },
     }
     info!("done with video track");
-    Ok(())
-}
-
-async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyhow::Result<()> {
-    let mut catalog_track_subscriber = subscriber
-        .get_track(".catalog")
-        .context("failed to get catalog track")?;
-
-    let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
-    let mut handles = FuturesUnordered::new();
-
-    for track in tracks {
-        info!("received track: {track:?}");
-        let subscriber = subscriber.clone();
-        let handle = tokio::spawn(async move {
-            if track.kind() == TrackKind::Audio {
-                track_subscriber_audio(track, subscriber).await.unwrap()
-            } else {
-                video_track_subscriber(track, subscriber).await.unwrap()
-            }
-        });
-        handles.push(handle);
-    }
-    tokio::select! {
-		_ = handles.next(), if ! handles.is_empty() => {}
-	}
     Ok(())
 }
 
@@ -363,26 +332,117 @@ async fn main() -> anyhow::Result<()> {
     println!("working dir: {:?}", std::env::current_dir().unwrap());
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
-    let target_output = config.output.clone();
+    let mut handles = FuturesUnordered::new();
 
-    let target_output = config.output.clone();
-    let handle = tokio::spawn(async move {
+
+
+    let mut catalog_track_subscriber = subscriber
+        .get_track(".catalog")
+        .context("failed to get catalog track")?;
+
+    let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
+
+    let audio_track = tracks.iter().find_map(|track| if track.kind() == TrackKind::Audio { Some(track) } else { None }).unwrap();
+    let channel = if audio_track.channel_count() == 1 {
+        "GLAS_TILL_GLAS_TYST"
+    } else {
+        "GLAS_TILL_GLAS"
+    };
+
+
+    let target_output = if channel == "GLAS_TILL_GLAS" {
+        PathBuf::from("/output/glas_till_glas/noencoder")
+    } else {
+        PathBuf::from("/output/glas_till_glas_tyst/noencoder")
+    };
+
+    handles.push(tokio::spawn(async move {
         let res = file_renamer(&target_output, "v0.mp4").await;
         match res {
             Ok(_) => {}
             Err(e) => error!("file_renamer exited with error: {}", e),
         }
-    });
+    }));
 
+    let mut vompc = if let Some(vompc_url) = config.vompc_url {
+        let delay = 0;
 
-    tokio::select! {
-		res = session.run() => res.context("session error")?,
-		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?,
-		res = handle => res.context("renamer audio error")?,
-		//res = handle2 => res.context("renamer video error")?,
-	}
-    error!("exiting");
+        let mut vompc = Client::new(vompc_url);
+        let res = vompc.create(channel, subscriber.id.as_str(), 3600, delay).await;
+        match res {
+            Ok(resource) => {info!("created vompc resource: {resource}");}
+            Err(error) => {
+                error!("failed to create vompc episode: {:?}", error);
+                return Ok(()) // not OK but idk how to return err
+            }
+        }
+        Some(vompc)
+    } else {
+        None
+    };
 
+    for track in tracks {
+        info!("received track: {track:?}");
+        let subscriber = subscriber.clone();
+        let handle = tokio::spawn(async move {
+            if track.kind() == TrackKind::Audio && track.channel_count() > 1 { // dont start mono audio subscription
+                info!("starting track: {track:?}");
+                track_subscriber_audio(track, subscriber).await.unwrap()
+            } else {
+                info!("starting track: {track:?}");
+                video_track_subscriber(track, subscriber).await.unwrap()
+            }
+        });
+        handles.push(handle);
+    }
+
+    let mut sigterm = signal(SignalKind::terminate()).unwrap();
+    let mut sigquit = signal(SignalKind::quit()).unwrap();
+    let mut sigint = signal(SignalKind::interrupt()).unwrap();
+
+    let res = tokio::select! {
+		res = session.run() => {
+            error!("session error: {:?}", res);
+            None
+        },
+		_ = handles.next(), if ! handles.is_empty() => {
+            None
+        },
+        _ = sigint.recv() =>  {
+            error!("stopping vompc due to sigint");
+            vompc_stop(&mut vompc).await?;
+            Some(())
+        },
+        _ = sigquit.recv() =>  {
+            error!("stopping vompc due to sigquit");
+            vompc_stop(&mut vompc).await?;
+            Some(())
+        },
+        _ = sigterm.recv() =>  {
+            error!("stopping vompc due to sigterm");
+            vompc_stop(&mut vompc).await?;
+            Some(())
+        }
+	};
+    error!("exiting session loop");
+
+    if let None = res {
+        error!("stopping vompc after session loop");
+        vompc_stop(&mut vompc).await?;
+    }
+
+    Ok(())
+}
+
+async fn vompc_stop(vompc: &mut Option<Client>) -> anyhow::Result<()> {
+    if let Some(vompc) = vompc.as_mut() {
+        info!("deleting vompc episode");
+        let res = vompc.delete_auto().await;
+        if let Err(err) = res {
+            error!("failed to delete episode: {}", err);
+            return Ok(()) // not OK but idk how to return err
+        }
+    }
     Ok(())
 }
 
