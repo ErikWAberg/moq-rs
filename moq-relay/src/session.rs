@@ -144,9 +144,7 @@ impl Session {
 
 		let session = request.publisher(subscriber.broadcast.clone()).await?;
 
-	 	select! {
-			_ = session.run() => {},
-		}
+		session.run().await?;
 		error!("exiting subscriber loop");
 
 

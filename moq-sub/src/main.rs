@@ -332,6 +332,24 @@ async fn main() -> anyhow::Result<()> {
     info!("working dir: {:?}", std::env::current_dir().unwrap());
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
+
+    let subscription = run(config, subscriber);
+
+
+   tokio::select! {
+		res = session.run() => {
+            error!("session error: {:?}", res);
+        },
+        res = subscription => {
+            error!("subscription error: {:?}", res);
+        }
+	}
+    error!("exiting session loop");
+
+    Ok(())
+}
+
+async fn run(config: Config, subscriber: Subscriber) -> anyhow::Result<()> {
     let mut handles = FuturesUnordered::new();
 
     let mut catalog_track_subscriber = subscriber
@@ -370,7 +388,7 @@ async fn main() -> anyhow::Result<()> {
         let mut vompc = Client::new(vompc_url);
         let res = vompc.create(channel, subscriber.id.as_str(), 3600, delay).await;
         match res {
-            Ok(resource) => {info!("created vompc resource: {resource}");}
+            Ok(resource) => { info!("created vompc resource: {resource}"); }
             Err(error) => {
                 error!("failed to create vompc episode: {:?}", error);
                 return Ok(()) // not OK but idk how to return err
@@ -385,7 +403,8 @@ async fn main() -> anyhow::Result<()> {
         info!("received track: {track:?}");
         let subscriber = subscriber.clone();
         let handle = tokio::spawn(async move {
-            if track.kind() == TrackKind::Audio && track.channel_count() > 1 { // dont start mono audio subscription
+            if track.kind() == TrackKind::Audio && track.channel_count() > 1 {
+                // dont start mono audio subscription
                 info!("starting track: {track:?}");
                 track_subscriber_audio(track, subscriber).await.unwrap()
             } else {
@@ -399,12 +418,8 @@ async fn main() -> anyhow::Result<()> {
     let mut sigterm = signal(SignalKind::terminate()).unwrap();
     let mut sigquit = signal(SignalKind::quit()).unwrap();
     let mut sigint = signal(SignalKind::interrupt()).unwrap();
-
     let res = tokio::select! {
-		res = session.run() => {
-            error!("session error: {:?}", res);
-            None
-        },
+
 		_ = handles.next(), if ! handles.is_empty() => {
             None
         },
@@ -424,10 +439,10 @@ async fn main() -> anyhow::Result<()> {
             Some(())
         }
 	};
-    error!("exiting session loop");
+    error!("exiting subscription loop");
 
     if let None = res {
-        error!("stopping vompc after session loop");
+        error!("stopping vompc after subscription loop");
         vompc_stop(&mut vompc).await?;
     }
 
