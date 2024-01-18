@@ -4,6 +4,7 @@ use anyhow::Context;
 use log::{error, info};
 use tokio::process::Command;
 use tokio::{select, signal};
+use tokio::signal::unix::{signal, SignalKind};
 use tokio::task::JoinHandle;
 use moq_api::ApiError;
 
@@ -147,41 +148,24 @@ impl Session {
 			let fake_id = path.chars().take(10).collect::<String>();
 			info!("creating episode: {}", fake_id);
 
-			//TODO duration!
 			let res = vompc.create("GLAS_TILL_GLAS", fake_id.as_str(), 3600).await;
-			let mut vompc = vompc.clone();
-
-			// tokio sleep
-			let tok: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-
-				match res {
-					Ok(resource) => {info!("created resource: {resource}");}
-					Err(error) => {
-						error!("failed to create episode: {:?}", error);
-						return Ok(()) // not OK but idk how to return err
-					}
-				}
-				println!("sleeping a bit");
-				tokio::time::sleep(tokio::time::Duration::from_secs(15)).await;
-
-				let res = vompc.start_auto().await;
-				match res {
-					Ok(_) => {}
-					Err(error) => {
-						error!("failed to start episode: {:?}", error);
-					}
-				}
-				Ok(())
-			});
-
-			//TODO send id/pevi to client
-
+			if let Err(err) = res {
+				error!("failed to create episode: {}", err);
+				return Ok(()) // not OK but idk how to return err
+			}
 		}
 
+		let mut sigterm = signal(SignalKind::terminate()).unwrap();
+		let mut sigint = signal(SignalKind::interrupt()).unwrap();
 		let res = select! {
 			_ = session.run() => None,
-			_ = signal::ctrl_c() =>  {
-				error!("stopping vompc due to ctrl-c");
+			_ = sigint.recv() =>  {
+				error!("stopping vompc due to sigint");
+				Self::vompc_stop(path, &mut vompc).await?;
+				Some(())
+			},
+			_ = sigterm.recv() =>  {
+				error!("stopping vompc due to sigterm");
 				Self::vompc_stop(path, &mut vompc).await?;
 				Some(())
 			}

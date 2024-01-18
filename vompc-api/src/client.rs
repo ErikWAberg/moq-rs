@@ -118,7 +118,7 @@ impl Client {
             encrypted: false,
             sign_interpreted: false,
             audio_described: false,
-            start: false
+            start: true
         }
     }
 }
