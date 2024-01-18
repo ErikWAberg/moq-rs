@@ -4,7 +4,7 @@ use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::{Duration, Utc};
 use clap::Parser;
 use futures::stream::FuturesUnordered;
@@ -18,6 +18,7 @@ use tokio::fs as TokioFs;
 use tokio::process::Command;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -31,7 +32,7 @@ mod catalog;
 mod subscriber;
 mod ffmpeg;
 
-async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()> {
+async fn file_renamer(local_target: &str, target: &PathBuf, filter_kind: &str) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
     let mut start_ms = 0;
@@ -40,10 +41,9 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
     start_ms = 0;
     let mut inotify = Inotify::init()
         .expect("Error while initializing inotify instance");
-    let src_dir = Path::new("/dump");
-    let local_target = Path::new("/dump/encoder");
+    let src_dir = Path::new(local_target);
+    fs::create_dir_all(src_dir)?;
     let mut skipped_audio_segments = 0;
-    fs::create_dir_all(local_target)?;
 
     inotify.watches().add(src_dir, WatchMask::CLOSE_WRITE)
         .expect("Failed to add file watch");
@@ -329,9 +329,7 @@ async fn main() -> anyhow::Result<()> {
     let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
     info!("stating subscriber for {stream_name}");
 
-    info!("working dir: {:?}", std::env::current_dir().unwrap());
-    remove_files("dump/encoder").await?;
-    remove_files("dump").await?;
+
 
     let subscription = run(config, subscriber);
 
@@ -371,11 +369,19 @@ async fn run(config: Config, subscriber: Subscriber) -> anyhow::Result<()> {
     } else {
         PathBuf::from("/output/glas_till_glas_tyst/noencoder")
     };
+    let work_dir = if channel == "GLAS_TILL_GLAS" {
+        "dump"
+    } else {
+        "dump/tyst"
+    };
     info!("using channel: {channel}, target_output: {target_output:?}");
+    info!("working dir: {:?}, target: {work_dir}", std::env::current_dir().unwrap());
+
+    remove_files(work_dir).await?;
 
     info!("starting file renamer");
     handles.push(tokio::spawn(async move {
-        let res = file_renamer(&target_output, "v0.mp4").await;
+        let res = file_renamer(&work_dir, &target_output, "v0.mp4").await;
         match res {
             Ok(_) => {}
             Err(e) => error!("moq-sub: file_renamer exited with error: {}", e),
@@ -390,8 +396,7 @@ async fn run(config: Config, subscriber: Subscriber) -> anyhow::Result<()> {
         match res {
             Ok(resource) => { info!("created vompc resource: {resource}"); }
             Err(error) => {
-                error!("failed to create vompc episode: {:?}", error);
-                return Ok(()) // not OK but idk how to return err
+                return Err(anyhow!("failed to create vompc episode: {:?}", error))
             }
         }
         Some(vompc)
