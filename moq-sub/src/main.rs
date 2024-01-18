@@ -329,12 +329,10 @@ async fn main() -> anyhow::Result<()> {
     let stream_name = config.url.path_segments().and_then(|c| c.last()).unwrap_or("").to_string();
     info!("stating subscriber for {stream_name}");
 
-    println!("working dir: {:?}", std::env::current_dir().unwrap());
+    info!("working dir: {:?}", std::env::current_dir().unwrap());
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
     let mut handles = FuturesUnordered::new();
-
-
 
     let mut catalog_track_subscriber = subscriber
         .get_track(".catalog")
@@ -342,25 +340,27 @@ async fn main() -> anyhow::Result<()> {
 
     let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
 
-    let audio_track = tracks.iter().find_map(|track| if track.kind() == TrackKind::Audio { Some(track) } else { None }).unwrap();
-    let channel = if audio_track.channel_count() == 1 {
-        "GLAS_TILL_GLAS_TYST"
-    } else {
-        "GLAS_TILL_GLAS"
-    };
-
+    info!("received tracks");
+    let mut channel = "GLAS_TILL_GLAS";
+    for track in tracks {
+        if track.channel_count() == 1 {
+            channel = "GLAS_TILL_GLAS_TYST";
+        }
+    }
 
     let target_output = if channel == "GLAS_TILL_GLAS" {
         PathBuf::from("/output/glas_till_glas/noencoder")
     } else {
         PathBuf::from("/output/glas_till_glas_tyst/noencoder")
     };
+    info!("using channel: {channel}, target_output: {target_output:?}");
 
+    info!("starting file renamer");
     handles.push(tokio::spawn(async move {
         let res = file_renamer(&target_output, "v0.mp4").await;
         match res {
             Ok(_) => {}
-            Err(e) => error!("file_renamer exited with error: {}", e),
+            Err(e) => error!("moq-sub: file_renamer exited with error: {}", e),
         }
     }));
 
