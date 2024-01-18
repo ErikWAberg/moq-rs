@@ -420,36 +420,12 @@ async fn run(config: Config, subscriber: Subscriber) -> anyhow::Result<()> {
         handles.push(handle);
     }
 
-    let mut sigterm = signal(SignalKind::terminate()).unwrap();
-    let mut sigquit = signal(SignalKind::quit()).unwrap();
-    let mut sigint = signal(SignalKind::interrupt()).unwrap();
-    let res = tokio::select! {
-
-		_ = handles.next(), if ! handles.is_empty() => {
-            None
-        },
-        _ = sigint.recv() =>  {
-            error!("stopping vompc due to sigint");
-            vompc_stop(&mut vompc).await?;
-            Some(())
-        },
-        _ = sigquit.recv() =>  {
-            error!("stopping vompc due to sigquit");
-            vompc_stop(&mut vompc).await?;
-            Some(())
-        },
-        _ = sigterm.recv() =>  {
-            error!("stopping vompc due to sigterm");
-            vompc_stop(&mut vompc).await?;
-            Some(())
-        }
-	};
+    tokio::select! {
+		_ = handles.next(), if ! handles.is_empty() => {},
+	}
     error!("exiting subscription loop");
 
-    if let None = res {
-        error!("stopping vompc after subscription loop");
-        vompc_stop(&mut vompc).await?;
-    }
+    vompc_stop(&mut vompc).await?;
 
     Ok(())
 }
