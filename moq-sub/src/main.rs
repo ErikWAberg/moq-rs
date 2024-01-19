@@ -1,4 +1,5 @@
 use std::{fs, io, sync::Arc, time};
+use std::fs::File as StdFile;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -11,12 +12,10 @@ use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use inotify::{Inotify, WatchMask};
 use log::{error, info};
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
-use tokio::{join, select};
 use tokio::fs as TokioFs;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
-use tokio::sync::Mutex;
+use tokio::select;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -124,7 +123,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
     // ffmpeg1: -f mp4 -i pipe:0 -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -
     // ffmpeg2:                  -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -i pipe:0 -ac 2 -ar 48000 -f segment ..
 
-    let mut ffmpeg1_args = [
+    let ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
         "-f", "s16le",
@@ -134,12 +133,13 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         "-"
         // "-loglevel", "error",
     ].map(|s| s.to_string()).to_vec();
-
+    let log = StdFile::create("dump/ffmpeg1.log").expect("unable to create log file");
     let mut ffmpeg1 = Command::new("ffmpeg")
         .args(&ffmpeg1_args)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
+        //.stderr(Stdio::inherit())
+        .stderr(Stdio::from(log))
         .spawn()
         .context("failed to spawn ffmpeg process 1")?;
 
@@ -170,11 +170,12 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         .try_into()
         .expect("failed to convert to Stdio");
 
+    let log = StdFile::create("dump/ffmpeg2.log").expect("unable to create log file");
     let mut ffmpeg2 = Command::new("ffmpeg")
         .args(&ffmpeg2_args)
         .stdin(ffmpeg1_stdout)
         .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
+        .stderr(Stdio::from(log))
         .spawn()
         .context("failed to spawn ffmpeg process 2")?;
     info!("ffmpeg2\n - args: {:?}\n", ffmpeg2_args.join(" "));

@@ -60,13 +60,13 @@ pub async fn change_timescale_ffmpeg(src: &PathBuf, dst: &PathBuf) -> Result<(),
 pub fn spawn(args: Vec<String>) -> Result<Child, Error> {
 
 	log::info!("Executing ffmpeg:\n\n{}\n", args.join(" "));
-
+	let log = std::fs::File::create("dump/ffmpeg-video.log").expect("unable to create log file");
 	let ffmpeg = Command::new("ffmpeg")
 		.current_dir("dump")
 		.args(&args)
 		.stdin(Stdio::piped())
 		.stdout(Stdio::inherit())
-		.stderr(Stdio::inherit())
+		.stderr(Stdio::from(log))
 		.kill_on_drop(true)
 		.spawn()
 		.context("failed to spawn ffmpeg process")?;
