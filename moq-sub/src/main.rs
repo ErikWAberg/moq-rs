@@ -2,6 +2,7 @@ use std::{fs, io, sync::Arc, time};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::str::FromStr;
 
 use anyhow::Context;
 use chrono::{Duration, Utc};
@@ -28,7 +29,7 @@ mod catalog;
 mod subscriber;
 mod ffmpeg;
 
-async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()> {
+async fn file_renamer(target: &PathBuf, silent: bool) -> anyhow::Result<()> {
     let ntp_epoch_offset = Duration::milliseconds(2208988800000);
 
     let mut start_ms = 0;
@@ -59,17 +60,10 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                 let parts: Vec<&str> = file_name.split('-').collect();
                 let file_suffix = parts[1];
 
-                // 17-a0.mp4
-                // 17-v0.mp4
-
-
                 if parts.len() == 2 && !file_suffix.ends_with("continuous.mp4") {
                     let segment_no = parts[0].parse::<u32>().unwrap();
 
-
                     let src_segment = src_dir.join(file_name);
-
-                    // file_suffix = a0.mp4 or v0.mp4
 
                     if file_suffix == "v0.mp4" {
                         if start_ms == 0 {
@@ -85,8 +79,15 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         let dst_video = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), file_suffix).as_str()));
 
                         ffmpeg::change_timescale_ffmpeg(&src_segment, &dst_video).await?;
-                        //fs::remove_file(&src_segment).expect("remove video failed");
+                        fs::remove_file(&src_segment).expect("remove video failed");
                         info!("copied video: {dst_video:?}");
+
+                        if silent {
+                            let src_audio = PathBuf::from_str("blackout/a0.mp4").unwrap();
+                            let dst_audio = target.join(Path::new(format!("{}-a0.mp4", segment_timestamp(start, segment_no)).as_str()));
+                            fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
+                            info!("copied blackout audio: {dst_audio:?}");
+                        }
                     } else {
                         if start_ms == 0 {
                             skipped_audio_segments += 1;
@@ -101,7 +102,7 @@ async fn file_renamer(target: &PathBuf, filter_kind: &str) -> anyhow::Result<()>
                         info!("Creating a new name for audio segment: {:}", segment_no);
                         let dst_audio = target.join(Path::new(format!("{}-{}", timestamp, "a0.mp4").as_str()));
                         fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
-                        //fs::remove_file(&src_audio).expect("remove audio failed");
+                        fs::remove_file(&src_audio).expect("remove audio failed");
                         info!("copied audio: {dst_audio:?}");
                     }
                 } else {
@@ -186,11 +187,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
 
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
 
-        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
-
-        // ffprobe_stdin.write_all(&init_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -199,18 +196,14 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
         loop {
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
-            // ffprobe_stdin.write_all(&data_track_data).await.context("failed to write to ffprobe_stdin").unwrap();
         }
     });
 
     select! {
-        //_ = ffprobe.wait() => {},
         _ = ffmpeg1.wait() => {},
         _ = ffmpeg2.wait() => {},
         _ = handle => {
             error!("killing audio ffmpeg");
-         //   ffprobe.kill().await?;
             ffmpeg1.kill().await?;
             ffmpeg2.kill().await?;
         },
@@ -224,8 +217,6 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
     let ffmpeg_args = ffmpeg::args(track.deref());
     let mut ffmpeg = ffmpeg::spawn(ffmpeg_args).unwrap();
     let mut ffmpeg_stdin = ffmpeg.stdin.take().context("failed to get ffmpeg stdin").unwrap();
-    //let local_raw = Path::new("/dump/raw");
-    //fs::create_dir_all(local_raw)?;
 
     let handle = tokio::spawn(async move {
         let mut init_track_subscriber = subscriber
@@ -234,9 +225,7 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
 
         let init_track_data = subscriber::get_segment(&mut init_track_subscriber).await.unwrap();
 
-        let mut continuous_file = File::create(format!("/dump/{}-continuous.mp4", track.kind().as_str())).await.context("failed to create init file").unwrap();
         ffmpeg_stdin.write_all(&init_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-        continuous_file.write_all(&init_track_data).await.context("failed to write to file").unwrap();
 
         let mut data_track_subscriber = subscriber
             .get_track(track.data_track().as_str())
@@ -245,7 +234,6 @@ async fn video_track_subscriber(track: Box<dyn Track>, subscriber: Subscriber) -
         loop {
             let data_track_data = subscriber::get_segment(&mut data_track_subscriber).await.unwrap();
             ffmpeg_stdin.write_all(&data_track_data).await.context("failed to write to ffmpeg stdin").unwrap();
-            continuous_file.write_all(&data_track_data).await.context("failed to write to file").unwrap();
         }
     });
 
@@ -269,20 +257,36 @@ async fn run_track_subscribers(subscriber: Subscriber, target: &PathBuf) -> anyh
 
     let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
     let mut handles = FuturesUnordered::new();
+    let target = target.clone();
+    let target_clone = target.clone();
+
+    let mut silent = false;
 
     for track in tracks {
         info!("received track: {track:?}");
         let subscriber = subscriber.clone();
-        let handle = tokio::spawn(async move {
-            if track.kind() == TrackKind::Audio {
+        if track.kind() == TrackKind::Audio && track.channel_count() == 1 {
+            silent = true;
+            info!("silent mode enabled!!");
+        }
+        handles.push(tokio::spawn(async move {
+             if track.kind() == TrackKind::Audio && !silent {
                 track_subscriber_audio(track, subscriber).await.unwrap()
             } else {
                 video_track_subscriber(track, subscriber).await.unwrap()
             }
-        });
-        handles.push(handle);
+        }));
     }
-    tokio::select! {
+
+    handles.push(tokio::spawn(async move {
+        let res = file_renamer(&target_clone, silent).await;
+        match res {
+            Ok(_) => {}
+            Err(e) => error!("file_renamer exited with error: {}", e),
+        }
+    }));
+
+    select! {
 		_ = handles.next(), if ! handles.is_empty() => {}
 	}
     Ok(())
@@ -378,23 +382,12 @@ async fn main() -> anyhow::Result<()> {
     println!("working dir: {:?}", std::env::current_dir().unwrap());
     remove_files("dump/encoder").await?;
     remove_files("dump").await?;
-    let target_output = config.output.clone();
-
-    let target_output = config.output.clone();
-    let handle = tokio::spawn(async move {
-        let res = file_renamer(&target_output, "v0.mp4").await;
-        match res {
-            Ok(_) => {}
-            Err(e) => error!("file_renamer exited with error: {}", e),
-        }
-    });
 
 
-    tokio::select! {
+
+    select! {
 		res = session.run() => res.context("session error")?,
 		res = run_track_subscribers(subscriber, &config.output) => res.context("application error")?,
-		res = handle => res.context("renamer audio error")?,
-		//res = handle2 => res.context("renamer video error")?,
 	}
     error!("exiting");
 
