@@ -175,7 +175,7 @@ impl Track for VideoTrack {
         //args.push("-video_track_timescale".to_string()); // ignored by ffmpeg for some reason
         //args.push("90k".to_string());
         args.push("-s:v".to_string());
-        args.push(format!("{}x{}", 1280, 720));
+        args.push(format!("{}x{}", 1920, 1080));
         args.push("-r".to_string());
         args.push("50".to_string());
         args.push("-c:v".to_string());
@@ -184,14 +184,14 @@ impl Track for VideoTrack {
         args.push("160".to_string());
 
         args.push("-b:v".to_string());
-        args.push("4.5M".to_string());
+        args.push("6.5M".to_string());
         args.push("-maxrate".to_string());
-        args.push("4.5M".to_string());
+        args.push("6.5M".to_string());
         args.push("-bufsize".to_string());
-        args.push("4.5M".to_string());
+        args.push("10.5M".to_string());
 
         args.push("-profile:v".to_string());
-        args.push("main".to_string());
+        args.push("high".to_string());
         args.push("-level".to_string());
         args.push("4.1".to_string());
         args.push("-color_primaries".to_string());
@@ -201,7 +201,7 @@ impl Track for VideoTrack {
         args.push("-colorspace".to_string());
         args.push("1".to_string());
         args.push("-preset".to_string());
-        args.push("ultrafast".to_string());
+        args.push("veryfast".to_string());
         args.push("-crf".to_string());
         args.push("23".to_string());
         args.push("-sc_threshold".to_string());
