@@ -11,6 +11,30 @@ services:
       RUST_LOG: info
     volumes:
       - ./certs:/certs
-      - ./dump:/dump:rw
       - /data/source:/output:rw
-    command: --tls-cert /certs/cert.pem --tls-key /certs/privkey.pem  --listen '[::]:443' --vompc-url https://vompc-web.videodev.svt.se --subscriber-output /output/glas_till_glas/noencoder
+    command: --tls-cert /certs/cert.pem --tls-key /certs/privkey.pem  --listen '[::]:443' --vompc-url https://vompc-web.videodev.svt.se
+
+  moq-redis:
+    container_name: moq-redis
+    image: redis:latest
+    entrypoint: [ "moq-redis" ]
+    ports:
+      - "6400:6379"
+    user: 10002:10002
+    environment:
+      RUST_LOG: info
+
+  moq-live-scheduler:
+    container_name: moq-live-scheduler
+    image: moq-rs
+    entrypoint: [ "moq-live-scheduler" ]
+    network_mode: host
+    user: 10002:10002
+    environment:
+      RUST_LOG: info
+    volumes:
+      - /root/.docker:/root/.docker
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - ./certs:/certs
+      - /data/source:/output:rw
+    command: --redis redis://localhost:6400 --vompc-url https://vompc-web.videodev.svt.se

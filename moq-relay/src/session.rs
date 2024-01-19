@@ -1,15 +1,11 @@
 use std::path::PathBuf;
 use std::process::Stdio;
+
 use anyhow::Context;
 use log::{error, info};
 use tokio::process::Command;
-use tokio::{select, signal};
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::task::JoinHandle;
-use moq_api::ApiError;
 
-use moq_transport::{session::Request, setup::Role, MoqError};
-use vompc_api::Client;
+use moq_transport::{MoqError, session::Request, setup::Role};
 
 use crate::Origin;
 
@@ -97,43 +93,11 @@ impl Session {
 
 		let session = request.subscriber(origin.broadcast.clone()).await?;
 
-		if let Some(output) = self.subscriber_output.clone() {
-			let path = path.to_string();
-			let mut args = [
-				"--output", output.to_str().unwrap(),
-				"--tls-disable-verify",
-
-			].map(|s| s.to_string()).to_vec();
-			if let Some(vompc_url) = self.origin.vompc() {
-				args.push("--vompc-url".to_string());
-				args.push(vompc_url.to_string());
-			}
-
-			args.push(format!("https://localhost/{path}"));
-			info!("starting subscriber: {:?}", args.join(" "));
-
-			let mut child = Command::new("moq-sub")
-				.env("RUST_LOG", "INFO")
-				.args(&args)
-				.stdout(Stdio::inherit())
-				.stderr(Stdio::inherit())
-				.kill_on_drop(true)
-				.spawn()
-				.context("failed to spawn subscriber process").unwrap();
-			info!("created subscriber");
-
-
-			tokio::select! {
+		tokio::select! {
 				_ = session.run() => origin.close().await?,
 				_ = origin.run() => (), // TODO send error to session
-				_ = child.wait() => (),
 
 			}
-			error!("exiting publisher loop");
-			let res = child.kill().await;
-			info!("attempt to kill subscriber: {res:?}");
-		}
-
 		Ok(())
 	}
 

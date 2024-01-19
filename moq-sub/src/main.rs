@@ -10,15 +10,11 @@ use clap::Parser;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 use inotify::{Inotify, WatchMask};
-use log::{error, info, log};
-use tokio::fs::File;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::{join, select};
+use log::{error, info};
 use tokio::fs as TokioFs;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::Command;
-use tokio::signal::unix::{signal, SignalKind};
-use tokio::sync::Mutex;
-use tokio::task::JoinHandle;
+use tokio::select;
 
 use cli::*;
 use moq_transport::cache::broadcast;
@@ -79,7 +75,7 @@ async fn file_renamer(local_target: &str, target: &PathBuf, filter_kind: &str) -
                         let dst_video = target.join(Path::new(format!("{}-{}", segment_timestamp(start, segment_no), file_suffix).as_str()));
 
                         ffmpeg::change_timescale_ffmpeg(&src_segment, &dst_video).await?;
-                        //fs::remove_file(&src_segment).expect("remove video failed");
+                        fs::remove_file(&src_segment).expect("remove video failed");
                         info!("copied video: {dst_video:?}");
                     } else {
                         if start_ms == 0 {
@@ -95,7 +91,7 @@ async fn file_renamer(local_target: &str, target: &PathBuf, filter_kind: &str) -
                         info!("Creating a new name for audio segment: {:}", segment_no);
                         let dst_audio = target.join(Path::new(format!("{}-{}", timestamp, "a0.mp4").as_str()));
                         fs::copy(&src_audio, &dst_audio).expect("copy audio failed");
-                        //fs::remove_file(&src_audio).expect("remove audio failed");
+                        fs::remove_file(&src_audio).expect("remove audio failed");
                         info!("copied audio: {dst_audio:?}");
                     }
                 } else {
@@ -117,7 +113,7 @@ async fn track_subscriber_audio(track: Box<dyn Track>, subscriber: Subscriber) -
     // ffmpeg1: -f mp4 -i pipe:0 -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -
     // ffmpeg2:                  -f s16le -c:a pcm_s16le [-ac 2] -ar 48000 -i pipe:0 -ac 2 -ar 48000 -f segment ..
 
-    let mut ffmpeg1_args = [
+    let ffmpeg1_args = [
         "-y", "-hide_banner",
         "-i", "pipe:0",
         "-f", "s16le",
@@ -334,7 +330,7 @@ async fn main() -> anyhow::Result<()> {
     let subscription = run(config, subscriber);
 
 
-   tokio::select! {
+   select! {
 		res = session.run() => {
             error!("session error: {:?}", res);
         },
@@ -357,10 +353,13 @@ async fn run(config: Config, subscriber: Subscriber) -> anyhow::Result<()> {
     let tracks = subscriber::get_catalog(&mut catalog_track_subscriber).await.unwrap().tracks;
 
     info!("received tracks");
+
+    let mut silent = false;
     let mut channel = "GLAS_TILL_GLAS";
     for track in &tracks {
         if track.channel_count() == 1 {
             channel = "GLAS_TILL_GLAS_TYST";
+            silent = true;
         }
     }
 

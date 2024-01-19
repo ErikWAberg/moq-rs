@@ -1173,16 +1173,32 @@ name = "moq-live-scheduler"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
+ "clap_mangen",
  "env_logger",
+ "inotify",
  "log",
+ "moq-api",
+ "moq-transport",
+ "mp4",
+ "quinn",
  "redis",
  "reqwest",
+ "rfc6381-codec",
+ "rustls",
+ "rustls-native-certs",
+ "rustls-pemfile",
  "serde",
+ "serde_derive",
  "serde_json",
  "thiserror",
  "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "typetag",
  "url",
+ "webtransport-quinn",
 ]
 
 [[package]]
