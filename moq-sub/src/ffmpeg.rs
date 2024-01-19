@@ -78,7 +78,7 @@ pub fn args(track: &dyn Track) -> Vec<String> {
 
 	let mut args = [
 		"-y", "-hide_banner",
-		"-loglevel", "error",
+		//"-loglevel", "error",
 	].map(|s| s.to_string()).to_vec();
 
 	let mut post_args = [
